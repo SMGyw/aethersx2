@@ -238,31 +238,29 @@ endif()
 	endif()
 
 	if(UNIX AND NOT APPLE)
-		find_package(X11 REQUIRED)
-		make_imported_target_if_missing(X11::X11 X11)
+		# X11 is for Linux, skipping for iOS
+		# find_package(X11 REQUIRED)
 	endif()
+
 	if(UNIX AND NOT PCSX2_CORE)
 		# --- Forced Mock for GTK (Not needed for iOS) ---
-if(NOT TARGET GTK3::gtk)
-    add_library(GTK3::gtk INTERFACE IMPORTED)
-endif()
+		if(NOT TARGET GTK3::gtk)
+			add_library(GTK3::gtk INTERFACE IMPORTED)
+		endif()
 
-if(NOT TARGET GTK::gtk)
-    add_library(GTK::gtk INTERFACE IMPORTED)
-endif()
+		if(NOT TARGET GTK::gtk)
+			add_library(GTK::gtk INTERFACE IMPORTED)
+		endif()
 
-set(GTK3_FOUND TRUE)
-set(GTK_FOUND TRUE)
-set(GTK2_FOUND TRUE)
+		set(GTK3_FOUND TRUE)
+		set(GTK_FOUND TRUE)
+		set(GTK2_FOUND TRUE)
 
-# We comment out the original logic to avoid nesting errors
-# if (GTK2_API)
-#    ...
-# endif()
-	if(WAYLAND_API)
-		find_package(Wayland REQUIRED)
-	endif()
-endif(WIN32)
+		if(WAYLAND_API)
+			# Wayland is for Linux, skipping for iOS
+			# find_package(Wayland REQUIRED)
+		endif()
+	endif() # Corrected: Closing the UNIX/PCSX2 block
 
 # Require threads on all OSes.
 find_package(Threads REQUIRED)
