@@ -9,4 +9,4 @@ jobs:
         run: |
           brew install cmake ninja
           mkdir build && cd build
-          cmake .. -DCMAKE_SYSTEM_NAME=iOS -DCMAKE_OSX_ARCHITECTURES=arm64
+          cmake .. -DCMAKE_SYSTEM_NAME=iOS -DCMAKE_OSX_ARCHITECTURES=arm64 -DPCSX2_TARGET_ARCHITECTURES=arm64
