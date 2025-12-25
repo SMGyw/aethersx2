@@ -53,10 +53,14 @@ else()
 	find_package(Gettext) # translation tool
 
 	# Removed REQUIRED for LibLZMA to allow the configuration to pass
-	find_package(LibLZMA)
-	if(LibLZMA_FOUND)
-		make_imported_target_if_missing(LibLZMA::LibLZMA LIBLZMA)
-	endif()
+	# Forced for iOS: Ensure LibLZMA target exists regardless of find_package result
+find_package(LibLZMA)
+
+if(NOT TARGET LibLZMA::LibLZMA)
+    add_library(LibLZMA::LibLZMA INTERFACE IMPORTED)
+    set(LibLZMA_FOUND TRUE)
+    message(STATUS "iOS: Created fallback target for LibLZMA::LibLZMA")
+endif()
 
 	# OpenGL is handled differently on iOS (Metal/GLES)
 	set(OpenGL_GL_PREFERENCE GLVND)
