@@ -13,7 +13,6 @@ jobs:
           brew install cmake ninja
 
       - name: Configure CMake for iOS
-        - name: Configure CMake
         run: |
           mkdir build
           cd build
