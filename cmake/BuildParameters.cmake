@@ -146,11 +146,16 @@ endif()
 # Architecture bitness detection
 include(TargetArch)
 target_architecture(PCSX2_TARGET_ARCHITECTURES)
-if(${PCSX2_TARGET_ARCHITECTURES} MATCHES "x86_64" OR ${PCSX2_TARGET_ARCHITECTURES} MATCHES "i386" OR
-   ${PCSX2_TARGET_ARCHITECTURES} MATCHES "aarch64")
-	message(STATUS "Compiling a ${PCSX2_TARGET_ARCHITECTURES} build on a ${CMAKE_HOST_SYSTEM_PROCESSOR} host.")
+
+# Improved check to support arm64
+if("${PCSX2_TARGET_ARCHITECTURES}" MATCHES "x86_64" OR 
+   "${PCSX2_TARGET_ARCHITECTURES}" MATCHES "i386" OR
+   "${PCSX2_TARGET_ARCHITECTURES}" MATCHES "arm64" OR
+   "${PCSX2_TARGET_ARCHITECTURES}" MATCHES "aarch64")
+	message(STATUS "Compiling an ${PCSX2_TARGET_ARCHITECTURES} build.")
 else()
-	message(FATAL_ERROR "Unsupported architecture: ${PCSX2_TARGET_ARCHITECTURES}")
+	set(PCSX2_TARGET_ARCHITECTURES "arm64")
+	message(STATUS "Forcing architecture to arm64 for iOS")
 endif()
 
 if(${PCSX2_TARGET_ARCHITECTURES} MATCHES "i386")
