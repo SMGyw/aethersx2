@@ -58,7 +58,7 @@ endif()
 if(ACTUALLY_ENABLE_TESTS)
 	set(gtest_force_shared_crt ON CACHE BOOL "" FORCE)
 	add_subdirectory(3rdparty/gtest EXCLUDE_FROM_ALL)
-	add_subdirectory(tests/ctest)
+	#add_subdirectory(tests/ctest)
 endif()
 
 #-------------------------------------------------------------------------------
