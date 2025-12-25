@@ -58,12 +58,18 @@ else()
 		make_imported_target_if_missing(LibLZMA::LibLZMA LIBLZMA)
 	endif()
 
-	# Using find_package OpenGL without either setting your opengl preference to GLVND or LEGACY
-	# is deprecated as of cmake 3.11.
+	# OpenGL is handled differently on iOS (Metal/GLES)
 	set(OpenGL_GL_PREFERENCE GLVND)
-	find_package(OpenGL REQUIRED)
-	find_package(PNG REQUIRED)
-	find_package(Vtune)
+	find_package(OpenGL)
+	if(OPENGL_FOUND)
+		# Only link if found
+	endif()
+
+	# PNG is usually provided by iOS SDK, so we remove REQUIRED
+	find_package(PNG)
+	
+	# Vtune is for Intel CPUs, not needed for iPhone (ARM64)
+	# find_package(Vtune)
 
 	if (NOT PCSX2_CORE)
 		# Does not require the module (allow to compile non-wx plugins)
