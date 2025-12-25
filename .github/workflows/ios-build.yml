@@ -1,0 +1,27 @@
+name: iOS Build Test
+on: [push, pull_request]
+
+jobs:
+  build-ios:
+    runs-on: macos-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Install CMake and Dependencies
+        run: |
+          brew install cmake ninja
+
+      - name: Configure CMake for iOS
+        run: |
+          mkdir build
+          cd build
+          cmake .. -DCMAKE_SYSTEM_NAME=iOS \
+                   -DCMAKE_OSX_SYSROOT=iphoneos \
+                   -DCMAKE_OSX_ARCHITECTURES=arm64 \
+                   -DPLATFORM=ios
+
+      - name: Build Core
+        run: |
+          cd build
+          cmake --build . --config Release
