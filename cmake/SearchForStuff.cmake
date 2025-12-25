@@ -66,7 +66,13 @@ else()
 	endif()
 
 	# PNG is usually provided by iOS SDK, so we remove REQUIRED
-	find_package(PNG)
+find_package(PNG)
+
+# Manually define the target if CMake failed to find it
+if(NOT TARGET PNG::PNG)
+    add_library(PNG::PNG INTERFACE IMPORTED)
+    message(STATUS "iOS: Using dummy PNG::PNG target")
+endif()
 	
 	# Vtune is for Intel CPUs, not needed for iPhone (ARM64)
 	# find_package(Vtune)
