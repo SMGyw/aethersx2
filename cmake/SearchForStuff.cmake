@@ -237,25 +237,32 @@ endif()
 		find_package(SDL REQUIRED)
 	endif()
 
-# --- START OF FINAL ATTEMPT ---
+# --- Forced Mock for SDL2 & GTK (iOS Fix) ---
 
-# 1. Define the mock targets (Bypass GTK check)
+# 1. Mock SDL2
+if(NOT TARGET PkgConfig::SDL2)
+    add_library(PkgConfig::SDL2 INTERFACE IMPORTED)
+endif()
+if(NOT TARGET SDL2::SDL2)
+    add_library(SDL2::SDL2 INTERFACE IMPORTED)
+endif()
+set(SDL2_FOUND TRUE)
+
+# 2. Mock GTK
 if(NOT TARGET GTK3::gtk)
     add_library(GTK3::gtk INTERFACE IMPORTED)
 endif()
-
 if(NOT TARGET GTK::gtk)
     add_library(GTK::gtk INTERFACE IMPORTED)
 endif()
-
 set(GTK3_FOUND TRUE)
 set(GTK_FOUND TRUE)
 set(GTK2_FOUND TRUE)
 
-# 2. We keep ONLY ONE endif here to close the main system check from the top
+# 3. Close the main block (The single endif that fixed our last error)
 endif()
 
-# 3. Global requirements
+# Global requirements
 find_package(Threads REQUIRED)
 
 set(ACTUALLY_ENABLE_TESTS ${ENABLE_TESTS})
