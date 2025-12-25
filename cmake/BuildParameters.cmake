@@ -215,12 +215,12 @@ elseif(${PCSX2_TARGET_ARCHITECTURES} MATCHES "aarch64")
     add_definitions("-march=armv8-a+crc")
     set(_ARCH_64 1)
     set(_M_ARM64 1)
-else()
-	# All but i386 requires -fPIC
-	set(CMAKE_POSITION_INDEPENDENT_CODE ON)
-
-	message(FATAL_ERROR "Unsupported architecture: ${PCSX2_TARGET_ARCHITECTURES}")
+    set(PCSX2_TARGET_ARCHITECTURES "arm64")
 endif()
+# else()
+#    set(CMAKE_POSITION_INDEPENDENT_CODE ON)
+#    message(FATAL_ERROR "Unsupported architecture: ${PCSX2_TARGET_ARCHITECTURES}")
+# endif()
 string(REPLACE " " ";" ARCH_FLAG_LIST "${ARCH_FLAG}")
 add_compile_options("${ARCH_FLAG_LIST}")
 
