@@ -42,7 +42,15 @@ else()
 	endif()
 
 	# Disabled PCAP as it's not required for iOS initial build
-	# find_package(PCAP REQUIRED)
+	# --- Forced Mock for PCAP (Network Support) ---
+set(PCAP_FOUND TRUE)
+set(PCAP_LIBRARIES "")
+set(PCAP_INCLUDE_DIRS "")
+
+if(NOT TARGET PCAP::PCAP)
+    add_library(PCAP::PCAP INTERFACE IMPORTED)
+    message(STATUS "iOS: Created dummy target for PCAP::PCAP")
+endif()
 
 	# Removed REQUIRED to prevent build failure if LibXml2 is missing
 	find_package(LibXml2)
