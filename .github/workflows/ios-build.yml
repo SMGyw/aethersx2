@@ -21,7 +21,9 @@ jobs:
                    -DCMAKE_OSX_ARCHITECTURES=arm64 \
                    -DPLATFORM=ios \
                    -DUSE_SYSTEM_LIBS=OFF \
-                   -DBUILD_SHARED_LIBS=OFF \
+                   -DENABLE_SOUNDTOUCH=OFF \
+                   -DSOUNDTOUCH_FOUND=FALSE \
+                   -DCMAKE_DISABLE_FIND_PACKAGE_SoundTouch=TRUE \
                    --no-warn-unused-cli
 
       - name: Build Core
