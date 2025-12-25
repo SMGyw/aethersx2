@@ -1076,6 +1076,12 @@ if(NOT PCSX2_CORE)
 		include/wx/xpmhand.h
 	)
 	target_compile_definitions(wx30_core PRIVATE wxUSE_BASE=0)
+# --- Forced Mock for JPEG for wxWidgets ---
+if(NOT TARGET JPEG::JPEG)
+    add_library(JPEG::JPEG INTERFACE IMPORTED)
+    set(JPEG_FOUND TRUE)
+    message(STATUS "iOS: Created dummy JPEG target for wxWidgets")
+endif()
 	target_link_libraries(wx30_core PUBLIC wx30_config PRIVATE PNG::PNG JPEG::JPEG wx30_buildparams Comctl32.lib Rpcrt4.lib)
 
 	add_library(wx30_adv
