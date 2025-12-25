@@ -1,0 +1,12 @@
+name: iOS Build Test
+on: [push, workflow_dispatch]
+jobs:
+  build:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v3
+      - name: Setup Build
+        run: |
+          brew install cmake ninja
+          mkdir build && cd build
+          cmake .. -DCMAKE_SYSTEM_NAME=iOS -DCMAKE_OSX_ARCHITECTURES=arm64
