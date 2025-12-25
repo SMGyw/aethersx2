@@ -237,9 +237,9 @@ endif()
 		find_package(SDL REQUIRED)
 	endif()
 
-# --- START CLEAN SECTION ---
+# --- START OF FINAL ATTEMPT ---
 
-# Define the mock targets for GTK (Needed for iOS to skip errors)
+# 1. Define the mock targets (Bypass GTK check)
 if(NOT TARGET GTK3::gtk)
     add_library(GTK3::gtk INTERFACE IMPORTED)
 endif()
@@ -252,15 +252,10 @@ set(GTK3_FOUND TRUE)
 set(GTK_FOUND TRUE)
 set(GTK2_FOUND TRUE)
 
-# --- IMPORTANT: We removed all previous if/else blocks ---
-# We only need enough endifs to close the blocks opened at the very top of the file.
-# If you get an error at line 259, it means there is one 'endif' too many.
-
-# Try with TWO endifs first. If it fails, we will remove one more.
-    endif()
+# 2. We keep ONLY ONE endif here to close the main system check from the top
 endif()
 
-# Global requirements
+# 3. Global requirements
 find_package(Threads REQUIRED)
 
 set(ACTUALLY_ENABLE_TESTS ${ENABLE_TESTS})
@@ -270,7 +265,7 @@ if(ENABLE_TESTS)
         set(ACTUALLY_ENABLE_TESTS Off)
     endif()
 endif()
-# --- END CLEAN SECTION ---
+# --- END OF FINAL ATTEMPT ---
 
 #----------------------------------------
 # Check correctness of the parameter
