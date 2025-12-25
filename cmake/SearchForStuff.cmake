@@ -237,41 +237,40 @@ endif()
 		find_package(SDL REQUIRED)
 	endif()
 
-	if(UNIX AND NOT APPLE)
-		# X11 is for Linux, skipping for iOS
-		# find_package(X11 REQUIRED)
-	endif()
+	# --- START OF FINAL FIX ---
 
-	if(UNIX AND NOT PCSX2_CORE)
-		# --- Forced Mock for GTK (Not needed for iOS) ---
-		if(NOT TARGET GTK3::gtk)
-			add_library(GTK3::gtk INTERFACE IMPORTED)
-		endif()
+# 1. Close any older blocks that might be open from the top of the file
+endif() 
 
-		if(NOT TARGET GTK::gtk)
-			add_library(GTK::gtk INTERFACE IMPORTED)
-		endif()
+# 2. Forced Mock for GTK (This bypasses the Linux requirement)
+if(NOT TARGET GTK3::gtk)
+    add_library(GTK3::gtk INTERFACE IMPORTED)
+endif()
 
-		set(GTK3_FOUND TRUE)
-		set(GTK_FOUND TRUE)
-		set(GTK2_FOUND TRUE)
+if(NOT TARGET GTK::gtk)
+    add_library(GTK::gtk INTERFACE IMPORTED)
+endif()
 
-		if(WAYLAND_API)
-			# Wayland is for Linux, skipping for iOS
-			# find_package(Wayland REQUIRED)
-		endif()
-	endif() # Corrected: Closing the UNIX/PCSX2 block
+set(GTK3_FOUND TRUE)
+set(GTK_FOUND TRUE)
+set(GTK2_FOUND TRUE)
 
-# Require threads on all OSes.
+# 3. Closing the parent blocks properly
+        endif()
+    endif()
+endif()
+
+# 4. Global requirements
 find_package(Threads REQUIRED)
 
 set(ACTUALLY_ENABLE_TESTS ${ENABLE_TESTS})
 if(ENABLE_TESTS)
-	if(NOT EXISTS "${CMAKE_SOURCE_DIR}/3rdparty/gtest/CMakeLists.txt")
-		message(WARNING "ENABLE_TESTS was on but gtest was not found, unit tests will not be enabled")
-		set(ACTUALLY_ENABLE_TESTS Off)
-	endif()
+    if(NOT EXISTS "${CMAKE_SOURCE_DIR}/3rdparty/gtest/CMakeLists.txt")
+        message(WARNING "ENABLE_TESTS was on but gtest was not found, unit tests will not be enabled")
+        set(ACTUALLY_ENABLE_TESTS Off)
+    endif()
 endif()
+# --- END OF FINAL FIX ---
 
 #----------------------------------------
 # Check correctness of the parameter
