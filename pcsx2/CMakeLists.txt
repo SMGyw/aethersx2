@@ -1007,7 +1007,7 @@ endif()
 
 # gui sources
 set(pcsx2GuiSources
-	gui/AppAssert.cpp
+	#gui/AppAssert.cpp
 	gui/AppConfig.cpp
 	gui/AppCoreThread.cpp
 	gui/AppEventSources.cpp
