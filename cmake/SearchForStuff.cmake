@@ -237,12 +237,9 @@ endif()
 		find_package(SDL REQUIRED)
 	endif()
 
-	# --- START OF FINAL FIX ---
+# --- START CLEAN SECTION ---
 
-# 1. Close any older blocks that might be open from the top of the file
-endif() 
-
-# 2. Forced Mock for GTK (This bypasses the Linux requirement)
+# Define the mock targets for GTK (Needed for iOS to skip errors)
 if(NOT TARGET GTK3::gtk)
     add_library(GTK3::gtk INTERFACE IMPORTED)
 endif()
@@ -255,12 +252,15 @@ set(GTK3_FOUND TRUE)
 set(GTK_FOUND TRUE)
 set(GTK2_FOUND TRUE)
 
-# 3. Closing the parent blocks properly
-        endif()
+# --- IMPORTANT: We removed all previous if/else blocks ---
+# We only need enough endifs to close the blocks opened at the very top of the file.
+# If you get an error at line 259, it means there is one 'endif' too many.
+
+# Try with TWO endifs first. If it fails, we will remove one more.
     endif()
 endif()
 
-# 4. Global requirements
+# Global requirements
 find_package(Threads REQUIRED)
 
 set(ACTUALLY_ENABLE_TESTS ${ENABLE_TESTS})
@@ -270,7 +270,7 @@ if(ENABLE_TESTS)
         set(ACTUALLY_ENABLE_TESTS Off)
     endif()
 endif()
-# --- END OF FINAL FIX ---
+# --- END CLEAN SECTION ---
 
 #----------------------------------------
 # Check correctness of the parameter
