@@ -14,12 +14,13 @@ jobs:
 
       - name: Configure CMake for iOS
         run: |
-          mkdir build
-          cd build
-          cmake .. -DCMAKE_SYSTEM_NAME=iOS \
-                   -DCMAKE_OSX_SYSROOT=iphoneos \
-                   -DCMAKE_OSX_ARCHITECTURES=arm64 \
-                   -DPLATFORM=ios
+  mkdir build
+  cd build
+  cmake .. -DCMAKE_SYSTEM_NAME=iOS \
+           -DCMAKE_OSX_SYSROOT=iphoneos \
+           -DCMAKE_OSX_ARCHITECTURES=arm64 \
+           -DPLATFORM=ios \
+           --no-warn-unused-cli
 
       - name: Build Core
         run: |
