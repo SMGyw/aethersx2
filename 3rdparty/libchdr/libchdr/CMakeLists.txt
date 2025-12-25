@@ -24,21 +24,9 @@ include(GNUInstallDirs)
 
 # Detect processor type.
 # Forced architecture for iOS ARM64 build
-if(TRUE)
-  set(CPU_ARCH "arm64")
-  set(ARCH_64BIT TRUE)
-  message(STATUS "Setting architecture to ARM64 for iOS build")
-endif()
-elseif(${CMAKE_SYSTEM_PROCESSOR} STREQUAL "x86" OR ${CMAKE_SYSTEM_PROCESSOR} STREQUAL "i386" OR
-       ${CMAKE_SYSTEM_PROCESSOR} STREQUAL "i686")
-  set(CPU_ARCH "x86")
-elseif(${CMAKE_SYSTEM_PROCESSOR} STREQUAL "aarch64")
-  set(CPU_ARCH "aarch64")
-elseif(${CMAKE_SYSTEM_PROCESSOR} STREQUAL "arm" OR ${CMAKE_SYSTEM_PROCESSOR} STREQUAL "armv7-a")
-  set(CPU_ARCH "arm")
-else()
-  message(FATAL_ERROR "Unknown system processor: " ${CMAKE_SYSTEM_PROCESSOR})
-endif()
+set(CPU_ARCH "arm64")
+set(ARCH_64BIT TRUE)
+set(PLATFORM_ARM TRUE)
 
 #--------------------------------------------------
 # dependencies
