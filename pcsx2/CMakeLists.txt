@@ -1539,8 +1539,8 @@ target_link_libraries(PCSX2_FLAGS INTERFACE
 	simpleini
 	wxWidgets::all
 	ZLIB::ZLIB
-	PkgConfig::SOUNDTOUCH
-	PkgConfig::SAMPLERATE
+	#PkgConfig::SOUNDTOUCH
+	#PkgConfig::SAMPLERATE
 	PNG::PNG
 	LibLZMA::LibLZMA
 	${LIBC_LIBRARIES}
