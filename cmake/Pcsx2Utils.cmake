@@ -158,3 +158,8 @@ function(source_groups_from_vcxproj_filters file)
 		source_group("${group}" FILES "${parent}/${path}")
 	endforeach()
 endfunction()
+# --- Forced Mock for GTK3 (Linux Interface) ---
+if(NOT TARGET GTK3::gtk)
+    add_library(GTK3::gtk INTERFACE IMPORTED)
+    set(GTK3_FOUND TRUE)
+endif()
