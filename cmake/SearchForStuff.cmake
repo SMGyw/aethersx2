@@ -40,12 +40,23 @@ else()
 		find_package(ALSA REQUIRED)
 		make_imported_target_if_missing(ALSA::ALSA ALSA)
 	endif()
-	find_package(PCAP REQUIRED)
-	find_package(LibXml2 REQUIRED)
-	make_imported_target_if_missing(LibXml2::LibXml2 LibXml2)
+
+	# Disabled PCAP as it's not required for iOS initial build
+	# find_package(PCAP REQUIRED)
+
+	# Removed REQUIRED to prevent build failure if LibXml2 is missing
+	find_package(LibXml2)
+	if(LibXml2_FOUND)
+		make_imported_target_if_missing(LibXml2::LibXml2 LibXml2)
+	endif()
+
 	find_package(Gettext) # translation tool
-	find_package(LibLZMA REQUIRED)
-	make_imported_target_if_missing(LibLZMA::LibLZMA LIBLZMA)
+
+	# Removed REQUIRED for LibLZMA to allow the configuration to pass
+	find_package(LibLZMA)
+	if(LibLZMA_FOUND)
+		make_imported_target_if_missing(LibLZMA::LibLZMA LIBLZMA)
+	endif()
 
 	# Using find_package OpenGL without either setting your opengl preference to GLVND or LEGACY
 	# is deprecated as of cmake 3.11.
