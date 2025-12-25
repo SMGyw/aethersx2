@@ -139,10 +139,12 @@ else()
 			endif()
 		endif()
 
-		find_package(wxWidgets REQUIRED base core adv)
+		# Disabling wxWidgets for iOS build as it's not compatible
+	# find_package(wxWidgets REQUIRED base core adv)
+	if(wxWidgets_FOUND)
 		include(${wxWidgets_USE_FILE})
 		make_imported_target_if_missing(wxWidgets::all wxWidgets)
-	else()
+	endif()
 		# Use bundled minimal wxwidgets.
 		add_subdirectory(3rdparty/wxwidgets3.0 EXCLUDE_FROM_ALL)
 	endif()
