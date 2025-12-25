@@ -63,11 +63,17 @@ if(NOT TARGET LibLZMA::LibLZMA)
 endif()
 
 	# OpenGL is handled differently on iOS (Metal/GLES)
-	set(OpenGL_GL_PREFERENCE GLVND)
-	find_package(OpenGL)
-	if(OPENGL_FOUND)
-		# Only link if found
-	endif()
+# set(OpenGL_GL_PREFERENCE GLVND)
+
+# Forced Mock for iOS
+set(OpenGL_FOUND TRUE)
+if(NOT TARGET OpenGL::GL)
+    add_library(OpenGL::GL INTERFACE IMPORTED)
+endif()
+
+if(NOT TARGET OpenGL::GLESv2)
+    add_library(OpenGL::GLESv2 INTERFACE IMPORTED)
+endif()
 
 	# PNG is usually provided by iOS SDK, so we remove REQUIRED
 find_package(PNG)
