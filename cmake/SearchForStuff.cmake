@@ -230,7 +230,7 @@ endif()
 
 	if(SDL2_API)
 		check_lib(SDL2 SDL2 SDL.h PATH_SUFFIXES SDL2)
-		alias_library(SDL::SDL PkgConfig::SDL2)
+		#alias_library(SDL::SDL PkgConfig::SDL2)
 	else()
 		# Tell cmake that we use SDL as a library and not as an application
 		set(SDL_BUILDING_LIBRARY TRUE)
