@@ -20,6 +20,8 @@ jobs:
                    -DCMAKE_OSX_SYSROOT=iphoneos \
                    -DCMAKE_OSX_ARCHITECTURES=arm64 \
                    -DPLATFORM=ios \
+                   -DUSE_SYSTEM_LIBS=OFF \
+                   -DBUILD_SHARED_LIBS=OFF \
                    --no-warn-unused-cli
 
       - name: Build Core
