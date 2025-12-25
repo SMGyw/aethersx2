@@ -1636,8 +1636,8 @@ if (APPLE)
 	target_link_options(PCSX2 PRIVATE -Wl,-segprot,__DATA,rwx,rw)
 
 	set_target_properties(PCSX2 PROPERTIES
-		MACOSX_BUNDLE true
-		MACOSX_BUNDLE_INFO_PLIST "${CMAKE_CURRENT_SOURCE_DIR}/gui/Resources/Info.plist.in"
+		#MACOSX_BUNDLE true
+		#MACOSX_BUNDLE_INFO_PLIST "${CMAKE_CURRENT_SOURCE_DIR}/gui/Resources/Info.plist.in"
 		OUTPUT_NAME PCSX2
 	)
 
