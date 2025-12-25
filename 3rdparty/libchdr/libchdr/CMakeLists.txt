@@ -23,15 +23,12 @@ include(FindPkgConfig)
 include(GNUInstallDirs)
 
 # Detect processor type.
-if(${CMAKE_SYSTEM_PROCESSOR} STREQUAL "x86_64" OR ${CMAKE_SYSTEM_PROCESSOR} STREQUAL "amd64")
-  set(CPU_ARCH "x64")
-elseif(${CMAKE_SYSTEM_PROCESSOR} STREQUAL "AMD64")
-  # MSVC x86/x64
-  if(CMAKE_SIZEOF_VOID_P EQUAL 8)
-    set(CPU_ARCH "x64")
-  else()
-    set(CPU_ARCH "x86")
-  endif()
+# Forced architecture for iOS ARM64 build
+if(TRUE)
+  set(CPU_ARCH "arm64")
+  set(ARCH_64BIT TRUE)
+  message(STATUS "Setting architecture to ARM64 for iOS build")
+endif()
 elseif(${CMAKE_SYSTEM_PROCESSOR} STREQUAL "x86" OR ${CMAKE_SYSTEM_PROCESSOR} STREQUAL "i386" OR
        ${CMAKE_SYSTEM_PROCESSOR} STREQUAL "i686")
   set(CPU_ARCH "x86")
