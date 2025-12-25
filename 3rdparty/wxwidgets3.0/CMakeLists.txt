@@ -1,6 +1,6 @@
-if (NOT WIN32 AND NOT PCSX2_CORE)
-	message(FATAL_ERROR "This CMakeLists is only for Windows, use a system package on mac/linux")
-endif()
+# if (NOT WIN32 AND NOT PCSX2_CORE)
+# 	message(FATAL_ERROR "This CMakeLists is only for Windows, use a system package on mac/linux")
+# endif()
 
 add_library(wx30_config
 	include/wx/msw/wx.rc)
