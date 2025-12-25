@@ -13,14 +13,15 @@ jobs:
           brew install cmake ninja
 
       - name: Configure CMake for iOS
+        - name: Configure CMake
         run: |
-  mkdir build
-  cd build
-  cmake .. -DCMAKE_SYSTEM_NAME=iOS \
-           -DCMAKE_OSX_SYSROOT=iphoneos \
-           -DCMAKE_OSX_ARCHITECTURES=arm64 \
-           -DPLATFORM=ios \
-           --no-warn-unused-cli
+          mkdir build
+          cd build
+          cmake .. -DCMAKE_SYSTEM_NAME=iOS \
+                   -DCMAKE_OSX_SYSROOT=iphoneos \
+                   -DCMAKE_OSX_ARCHITECTURES=arm64 \
+                   -DPLATFORM=ios \
+                   --no-warn-unused-cli
 
       - name: Build Core
         run: |
