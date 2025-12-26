@@ -1,17 +1,6 @@
 # Project Name
 project(Pcsx2)
-# Fix for iOS/ARM: Remove x86 specific flags
-if(APPLE)
-    string(REPLACE "-msse" "" CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS}")
-    string(REPLACE "-msse2" "" CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS}")
-    string(REPLACE "-msse3" "" CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS}")
-    string(REPLACE "-msse4.1" "" CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS}")
-    
-    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -mno-sse -mno-sse2 -mno-sse3 -mno-sse4.1")
-    set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -mno-sse -mno-sse2 -mno-sse3 -mno-sse4.1")
-    
-    add_definitions(-D__ARM_NEON)
-endif()
+
 cmake_minimum_required(VERSION 3.10...3.17)
 
 # Force iOS and Apple definitions
