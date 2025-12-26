@@ -195,3 +195,12 @@ static const int __pagesize = PCSX2_PAGESIZE;
 #define __ri __releaseinline
 #define __fi __forceinline
 #define __fc __fastcall
+#ifdef __APPLE__
+    // Define wx types as standard types to bypass wxWidgets dependency
+    typedef char wxChar;
+    #include <string>
+    using wxString = std::string;
+    #ifndef NULL
+        #define NULL 0
+    #endif
+#endif
