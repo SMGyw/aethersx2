@@ -196,7 +196,15 @@ endif ()
 
 add_library(fmt ${FMT_SOURCES} ${FMT_HEADERS} README.rst ChangeLog.rst)
 add_library(fmt::fmt ALIAS fmt)
-
+# --- Force Disable SSE for ARM/iOS targets ---
+if(APPLE)
+    # This removes any default flags and tells the compiler to forget SSE
+    set_target_properties(fmt PROPERTIES COMPILE_FLAGS "-U__SSE__ -U__SSE2__")
+    target_compile_definitions(fmt PRIVATE FMT_USE_SSE=0)
+    
+    # We use this to skip the "unsupported option" error we saw earlier
+    target_compile_options(fmt PRIVATE "-Wno-unused-command-line-argument")
+endif()
 if (HAVE_STRTOD_L)
   target_compile_definitions(fmt PUBLIC FMT_LOCALE)
 endif ()
