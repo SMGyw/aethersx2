@@ -1,32 +1,34 @@
 # Project Name
 project(Pcsx2)
 if(APPLE)
-include_directories(${CMAKE_SOURCE_DIR}/dummy_wx)
-    # 1. Architecture Settings
-    # We let YAML set the SYSROOT to avoid "file not found" errors
+    # 1. Architecture and System
     set(CMAKE_OSX_ARCHITECTURES "arm64" CACHE STRING "" FORCE)
     
-    # 2. Disable problematic features for iOS
+    # 2. Force Disable Intel Features (To fix errors around 20%)
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -mno-sse -mno-sse2 -mno-sse3 -mno-sse4.1 -mno-avx -mno-avx2")
+    add_compile_definitions(PCSX2_ARCH_ARM64=1)
+    add_compile_definitions(PCSX2_ARCH_X86=0)
+    
+    # 3. Disable UI and External libs
     set(USE_WXWIDGETS OFF CACHE BOOL "" FORCE)
     set(PCSX2_CORE ON CACHE BOOL "" FORCE)
     set(USE_OPENGL OFF CACHE BOOL "" FORCE)
+    set(USE_VULKAN ON CACHE BOOL "" FORCE)
 
-    # 3. Create a dummy target to bypass wxWidgets link errors
+    # 4. Include our Dummy headers
+    include_directories(${CMAKE_SOURCE_DIR}/dummy_wx)
+
+    # 5. Create Dummy Target for Linking
     if(NOT TARGET wxWidgets::all)
         add_library(wxWidgets::all INTERFACE IMPORTED)
     endif()
 
-    # 4. CPU & Architecture Definitions
+    # 6. NEON optimizations for ARM
     add_definitions(-D__ARM_NEON)
     add_definitions(-DPCSX2_TARGET_ARCH_ARM)
-    add_compile_definitions(PCSX2_ARCH_X86=0)
-    add_compile_definitions(FMT_USE_SSE=0)
-    add_compile_definitions(FMT_USE_SSE2=0)
-
-    # 5. Compiler Flags to ignore non-critical errors
-    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wno-everything")
+    add_compile_definitions(FMT_USE_INT128=0)
     
-    message(STATUS "iOS Build Configuration Active")
+    message(STATUS "Applied Core-Only ARM patches for iOS")
 endif()
 cmake_minimum_required(VERSION 3.10...3.17)
 
