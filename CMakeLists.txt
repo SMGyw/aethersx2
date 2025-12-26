@@ -1,26 +1,15 @@
 # Project Name
 project(Pcsx2)
-# --- Step 1: Force ARM Architecture and Clean x86 Flags ---
 if(APPLE)
-    # Target iOS/ARM64
     set(CMAKE_OSX_ARCHITECTURES "arm64" CACHE STRING "" FORCE)
     add_definitions(-D__ARM_NEON)
     add_definitions(-DPCSX2_TARGET_ARCH_ARM)
     add_compile_definitions(PCSX2_ARCH_X86=0)
-
-    # Disable SSE for fmt library globally
     add_compile_definitions(FMT_USE_SSE=0)
-    add_compile_definitions(__SSE__=0)
-    add_compile_definitions(__SSE2__=0)
-
-    # Remove any SSE flags inherited from the system
-    string(REPLACE "-msse" "" CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS}")
-    string(REPLACE "-msse2" "" CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS}")
-    string(REPLACE "-msse3" "" CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS}")
-    string(REPLACE "-msse4.1" "" CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS}")
     
-    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS}")
-    set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS}")
+    # We remove -mno-sse because ARM compiler doesn't recognize it
+    # Instead, we just tell it to ignore x86 specific code
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wno-unused-command-line-argument")
 endif()
 cmake_minimum_required(VERSION 3.10...3.17)
 
