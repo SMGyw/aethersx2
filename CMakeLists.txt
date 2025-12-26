@@ -1,6 +1,14 @@
 # Project Name
 project(Pcsx2)
-
+# Fix for iOS/ARM: Remove x86 specific flags (SSE)
+if(APPLE)
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -mno-sse -mno-sse2 -mno-sse3 -mno-sse4.1")
+    set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -mno-sse -mno-sse2 -mno-sse3 -mno-sse4.1")
+    
+    # Ensure the compiler knows we are targeting ARM NEON
+    add_definitions(-D__ARM_NEON)
+    add_definitions(-DPCSX2_TARGET_ARCH_ARM)
+endif()
 cmake_minimum_required(VERSION 3.10...3.17)
 
 # Force iOS and Apple definitions
