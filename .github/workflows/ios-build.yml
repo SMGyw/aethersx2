@@ -44,7 +44,7 @@ jobs:
 
       - name: Build Core
         run: |
-          # 1. Cleanup
+          # 1. Clean and Setup
           rm -rf build && mkdir build
           mkdir -p dummy_wx/wx
           
@@ -52,15 +52,38 @@ jobs:
           find 3rdparty/libchdr/libchdr/deps/zlib-1.2.11 -name "zutil.h" -exec sed -i '' '/#.*define.*fdopen/d' {} +
           echo "// Empty" > 3rdparty/cubeb/src/cubeb_resampler.cpp
           echo "// Empty" > 3rdparty/cubeb/src/cubeb_audiounit.cpp
-          
-          # Fix for the 31% error (AGL is not for iOS)
           echo "// Empty" > common/GL/ContextAGL.mm
           echo "// Empty" > common/GL/ContextAGL.h
 
-          # 3. Create Mock wxWidgets Headers
+          # 3. Comprehensive Mock wxWidgets Headers (The "Fake" Framework)
+          echo "#pragma once" > dummy_wx/wx/wx.h
           echo "#pragma once" > dummy_wx/wx/intl.h
           echo "#pragma once" > dummy_wx/wx/tokenzr.h
-          echo "class wxString : public std::string { public: using std::string::string; wxString() : std::string() {} wxString(const std::string& s) : std::string(s) {} };" > dummy_wx/wx/string.h
+          echo "#pragma once" > dummy_wx/wx/numformatter.h
+          echo "#pragma once" > dummy_wx/wx/filename.h
+          echo "#pragma once" > dummy_wx/wx/dir.h
+          echo "#pragma once" > dummy_wx/wx/log.h
+          echo "#pragma once" > dummy_wx/wx/thread.h
+          echo "#pragma once" > dummy_wx/wx/stopwatch.h
+          
+          # Better wxString Mock to prevent redefinition errors
+          cat <<EOF > dummy_wx/wx/string.h
+          #pragma once
+          #include <string>
+          #include <vector>
+          #ifndef WXSTRING_DEFINED
+          #define WXSTRING_DEFINED
+          class wxString : public std::string {
+          public:
+              using std::string::string;
+              wxString() : std::string() {}
+              wxString(const std::string& s) : std::string(s) {}
+              wxString(const char* s) : std::string(s ? s : "") {}
+              const char* c_str() const { return std::string::c_str(); }
+              bool AfterFirst(char c, wxString* rest) const { return false; }
+          };
+          #endif
+          EOF
           
           cd build
           
@@ -70,9 +93,10 @@ jobs:
                    -DBUILD_CUBEB=OFF \
                    -DUSE_OPENGL=OFF \
                    -DUSE_VULKAN=ON \
+                   -DUSE_WXWIDGETS=OFF \
                    -DHAVE_FDOPEN=1
           
-          # 5. Strip SSE flags
+          # 5. Strip SSE flags (Crucial for 32%+)
           find . -type f -name "*.make" -exec sed -i '' 's/-mfpmath=sse//g' {} +
           find . -type f -name "flags.make" -exec sed -i '' 's/-mfpmath=sse//g' {} +
 
