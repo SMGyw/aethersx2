@@ -12,6 +12,18 @@ jobs:
         run: |
           brew install cmake ninja
 
+- name: Create Dummy wxWidgets Headers
+        run: |
+          mkdir -p dummy_wx/wx
+          touch dummy_wx/wx/string.h
+          touch dummy_wx/wx/log.h
+          touch dummy_wx/wx/thread.h
+          touch dummy_wx/wx/gdicmn.h
+          touch dummy_wx/wx/msgdlg.h
+          touch dummy_wx/wx/app.h
+          touch dummy_wx/wx/confbase.h
+          touch dummy_wx/wx/fileconf.h
+
       - name: Configure CMake
         run: |
           # 1. Clean any old configuration to prevent cache errors
