@@ -45,17 +45,18 @@ jobs:
       - name: Build Core
         run: |
           cd build
-          echo "Deep cleaning zlib, cubeb and fixing headers..."
+          echo "Full cleanup to apply new CMake settings..."
           
-          # 1. Remove any fdopen definitions in all zutil.h files to avoid iOS system conflict
-          find .. -name "zutil.h" -exec sed -i '' '/#.*define.*fdopen/d' {} +
+          # 1. Clean up old cache and cubeb files
+          rm -rf CMakeCache.txt
+          rm -rf CMakeFiles/
+          rm -rf 3rdparty/cubeb/
           
-          # 2. Force delete entire cubeb build directory
-          rm -rf 3rdparty/cubeb/CMakeFiles/cubeb.dir/
+          # 2. Re-run CMake to generate clean makefiles without Cubeb
+          cmake .. -DCMAKE_BUILD_TYPE=Release -DUSE_CUBEB=OFF -DBUILD_CUBEB=OFF
           
-          # 3. Strip Intel-specific flags from generated makefiles
+          # 3. Strip Intel-specific flags
           find . -type f -name "*.make" -exec sed -i '' 's/-mfpmath=sse//g' {} +
-          find . -type f -name "flags.make" -exec sed -i '' 's/-mfpmath=sse//g' {} +
-
+          
           echo "Starting clean build process..."
           cmake --build . --config Release -- -j $(sysctl -n hw.logicalcpu)
