@@ -45,11 +45,17 @@ jobs:
       - name: Build Core
         run: |
           cd build
-          echo "Cleaning up invalid ARM flags..."
+          echo "Deep cleaning zlib and fixing headers..."
+          
+          # 1. Remove any fdopen definitions in all zutil.h files to avoid iOS system conflict
+          find .. -name "zutil.h" -exec sed -i '' '/#.*define.*fdopen/d' {} +
+          
+          # 2. Force delete the specific object file that keeps failing
+          rm -rf 3rdparty/libchdr/libchdr/deps/zlib-1.2.11/CMakeFiles/zlib.dir/zutil.c.o
+          
+          # 3. Strip Intel-specific flags from generated makefiles
           find . -type f -name "*.make" -exec sed -i '' 's/-mfpmath=sse//g' {} +
           find . -type f -name "flags.make" -exec sed -i '' 's/-mfpmath=sse//g' {} +
-          find . -type f -name "link.txt" -exec sed -i '' 's/-mfpmath=sse//g' {} +
-          
-          echo "Starting build..."
-          # Added -j to speed up the build
+
+          echo "Starting build process..."
           cmake --build . --config Release -- -j $(sysctl -n hw.logicalcpu)
