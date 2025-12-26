@@ -1,10 +1,13 @@
 # Project Name
 project(Pcsx2)
-# Add this right after project(Pcsx2)
+# Simple and clean ARM configuration
 if(APPLE)
-    add_compile_options("-mno-sse" "-mno-sse2" "-mno-sse3" "-mno-sse4.1")
     add_definitions(-D__ARM_NEON)
+    add_definitions(-DPCSX2_TARGET_ARCH_ARM)
     set(CMAKE_OSX_ARCHITECTURES "arm64" CACHE STRING "" FORCE)
+    
+    # This tells the compiler NOT to include any x86 code paths
+    add_compile_definitions(PCSX2_ARCH_X86=0)
 endif()
 cmake_minimum_required(VERSION 3.10...3.17)
 
