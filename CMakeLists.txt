@@ -1,25 +1,27 @@
 # Project Name
 project(Pcsx2)
 if(APPLE)
-    # 1. Force Architecture for iPhone (ARM64)
+    # 1. Fundamental iOS Settings
     set(CMAKE_OSX_ARCHITECTURES "arm64" CACHE STRING "" FORCE)
     set(CMAKE_OSX_SYSROOT "iphoneos" CACHE STRING "" FORCE)
     
-    # 2. Disable problematic GUI libraries (Fix for the 5% Error)
+    # 2. Disable problematic features
     set(USE_WXWIDGETS OFF CACHE BOOL "" FORCE)
     set(PCSX2_CORE ON CACHE BOOL "" FORCE)
     set(USE_OPENGL OFF CACHE BOOL "" FORCE)
     
-    # 3. CPU specific flags for ARM
+    # 3. THE FIX: Create a "Fake" wxWidgets library to stop Configure Errors
+    if(NOT TARGET wxWidgets::all)
+        add_library(wxWidgets::all INTERFACE IMPORTED)
+    endif()
+
+    # 4. ARM Definitions
     add_definitions(-D__ARM_NEON)
     add_definitions(-DPCSX2_TARGET_ARCH_ARM)
     add_compile_definitions(PCSX2_ARCH_X86=0)
     add_compile_definitions(FMT_USE_SSE=0)
     
-    # 4. Suppress warnings that might stop the build
-    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wno-unused-command-line-argument -Wno-everything")
-    
-    message(STATUS "Configuring for iOS ARM64 - wxWidgets Disabled")
+    message(STATUS "Bypassing wxWidgets dependency for iOS build")
 endif()
 cmake_minimum_required(VERSION 3.10...3.17)
 
