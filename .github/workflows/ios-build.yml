@@ -29,4 +29,10 @@ jobs:
       - name: Build Core
         run: |
           cd build
+          # This command will find all references to sse in the generated build files and DELETE them
+          grep -r "-msse" . -l | xargs sed -i '' 's/-msse//g' || true
+          grep -r "-msse2" . -l | xargs sed -i '' 's/-msse2//g' || true
+          grep -r "sse" . -l | xargs sed -i '' 's/sse//g' || true
+          
+          # Now build normally
           cmake --build . --config Release
