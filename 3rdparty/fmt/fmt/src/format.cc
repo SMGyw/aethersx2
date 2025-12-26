@@ -4,15 +4,16 @@
 // All rights reserved.
 //
 // For the license information refer to format.h.
-#ifdef __SSE__
-#undef __SSE__
+#ifdef __APPLE__
+  #include <TargetConditionals.h>
+  #if TARGET_OS_IPHONE || TARGET_OS_SIMULATOR || defined(__arm64__)
+    #ifndef FMT_USE_SSE2
+      #define FMT_USE_SSE2 0
+    #endif
+    #define __SSE__ 0
+    #define __SSE2__ 0
+  #endif
 #endif
-
-#ifdef __SSE2__
-#undef __SSE2__
-#endif
-
-#define FMT_USE_SSE2 0
 #include "fmt/format-inl.h"
 
 FMT_BEGIN_NAMESPACE
