@@ -2,6 +2,9 @@
 project(Pcsx2)
 # Simple and clean ARM configuration
 if(APPLE)
+    add_compile_definitions(FMT_USE_SSE=0)
+    add_compile_definitions(__SSE__=0)
+    add_compile_definitions(__SSE2__=0)
     add_definitions(-D__ARM_NEON)
     add_definitions(-DPCSX2_TARGET_ARCH_ARM)
     set(CMAKE_OSX_ARCHITECTURES "arm64" CACHE STRING "" FORCE)
