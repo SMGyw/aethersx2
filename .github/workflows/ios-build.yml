@@ -44,37 +44,33 @@ jobs:
 
       - name: Build Core
         run: |
-          # 1. Clean build directory
+          # 1. Clean and Setup
           rm -rf build && mkdir build
           mkdir -p dummy_wx/wx
           
-          # 2. Fix external deps
+          # 2. Fix external dependencies
           find 3rdparty/libchdr/libchdr/deps/zlib-1.2.11 -name "zutil.h" -exec sed -i '' '/#.*define.*fdopen/d' {} +
           echo "// Empty" > 3rdparty/cubeb/src/cubeb_resampler.cpp
           echo "// Empty" > 3rdparty/cubeb/src/cubeb_audiounit.cpp
           echo "// Empty" > common/GL/ContextAGL.mm
 
-          # 3. The Ultimate "Injected" Mock Header
-          # This class provides ALL missing functions that caused the 20 errors
+          # 3. Create the Mock Bridge Header
           cat <<EOF > dummy_wx/wx_bridge.h
           #pragma once
           #include <string>
           #include <stdarg.h>
           #include <algorithm>
-
           class wxString : public std::string {
           public:
               using std::string::string;
               wxString() : std::string("") {}
               wxString(const std::string& s) : std::string(s) {}
               wxString(const char* s) : std::string(s ? s : "") {}
-              
               const char* c_str() const { return std::string::c_str(); }
               bool IsEmpty() const { return empty(); }
               void Clear() { clear(); }
               wxString Lower() const { wxString s = *this; std::transform(s.begin(), s.end(), s.begin(), ::tolower); return s; }
               bool StartsWith(const std::string& prefix) const { return this->compare(0, prefix.length(), prefix) == 0; }
-              
               static wxString Format(const char* fmt, ...) {
                   char buf[4096]; va_list args; va_start(args, fmt);
                   vsnprintf(buf, sizeof(buf), fmt, args); va_end(args);
@@ -85,26 +81,27 @@ jobs:
           #define _(x) x
           EOF
 
-          # 4. Source Surgery: Remove ONLY the conflicting typedefs
-          find common -type f \( -name "*.cpp" -o -name "*.h" \) -exec sed -i '' 's/typedef std::string wxString;/\/\/ removed/g' {} +
+          # 4. Patch Source: Remove conflicting typedefs
+          find common -type f \( -name "*.h" -o -name "*.cpp" \) -exec sed -i '' 's/typedef std::string wxString;/\/\/ removed/g' {} +
 
           cd build
           
-          # 5. Configure with FORCE INCLUDE
-          # This tells the compiler to automatically include our bridge in EVERY file
-          export CXXFLAGS="-include ${GITHUB_WORKSPACE}/dummy_wx/wx_bridge.h"
-          
+          # 5. Configure with NO global injection to avoid 0% error
           cmake .. -DCMAKE_BUILD_TYPE=Release \
-                   -DUSE_CUBEB=OFF \
-                   -DBUILD_CUBEB=OFF \
-                   -DUSE_WXWIDGETS=OFF \
-                   -DUSE_OPENGL=OFF \
-                   -DHAVE_FDOPEN=1 \
-                   -DCMAKE_CXX_FLAGS="$CXXFLAGS"
+                   -DUSE_CUBEB=OFF -DBUILD_CUBEB=OFF \
+                   -DUSE_WXWIDGETS=OFF -DUSE_OPENGL=OFF \
+                   -DHAVE_FDOPEN=1
 
-          # 6. Final Intel Flag Cleanup
-          find . -type f -name "*.make" -exec sed -i '' 's/-mfpmath=sse//g' {} +
-          find . -type f -name "flags.make" -exec sed -i '' 's/-mfpmath=sse//g' {} +
+          # 6. HEAVY STRIP: Remove SSE from every single makefile generated
+          echo "Deep cleaning SSE flags from all modules..."
+          find . -name "*.make" -exec sed -i '' 's/-mfpmath=sse//g' {} +
+          find . -name "flags.make" -exec sed -i '' 's/-mfpmath=sse//g' {} +
+          find . -name "flags.make" -exec sed -i '' 's/-msse[0-9.]*//g' {} +
 
-          # 7. Run Build
+          # 7. Targeted Injection: Inject the bridge ONLY into the 'common' module
+          # This avoids breaking 3rdparty/glslang
+          echo "Injecting bridge into common module..."
+          sed -i '' "s|CXX_FLAGS = |CXX_FLAGS = -include ${GITHUB_WORKSPACE}/dummy_wx/wx_bridge.h |" common/CMakeFiles/common.dir/flags.make
+
+          # 8. Run Build
           cmake --build . --config Release -- -j $(sysctl -n hw.logicalcpu)
