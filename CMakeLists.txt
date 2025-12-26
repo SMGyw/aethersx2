@@ -18,17 +18,22 @@ if(APPLE)
     add_compile_definitions(__AVX__=0)
     add_compile_definitions(__AVX2__=0)
     
-    # 3. Compiler Flags - Ignore warnings and set target
+    # 3. Suppress wxWidgets Redefinitions (Fix for 31% error)
+    # We force the compiler to treat wxString as a standard string to bypass UI dependencies
+    add_compile_definitions(WXSTRING_DEFINED)
+    add_compile_definitions(wxString=std::string)
+    
+    # 4. Compiler Flags - Ignore warnings and set target
     set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -w")
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -w")
     
-    # 4. Core & Feature Settings
+    # 5. Core & Feature Settings
     set(USE_WXWIDGETS OFF CACHE BOOL "" FORCE)
     set(PCSX2_CORE ON CACHE BOOL "" FORCE)
     set(USE_OPENGL OFF CACHE BOOL "" FORCE)
     set(USE_VULKAN ON CACHE BOOL "" FORCE)
 
-    # 5. Total Audio Disable (Kill Cubeb completely to fix 28% error)
+    # 6. Total Audio Disable (Kill Cubeb completely to fix 28% error)
     set(USE_CUBEB OFF CACHE BOOL "" FORCE)
     set(BUILD_CUBEB OFF CACHE BOOL "" FORCE)
     set(USE_ALSA OFF CACHE BOOL "" FORCE)
@@ -37,10 +42,11 @@ if(APPLE)
     set(USE_SOUNDTOUCH OFF CACHE BOOL "" FORCE)
     add_compile_definitions(CUBEB_GECKO_BUILD=0)
     
-    # Ensure dummy_wx is checked FIRST
+    # 7. Include Management
+    # Ensure dummy_wx is checked FIRST before any other system headers
     include_directories(BEFORE ${CMAKE_SOURCE_DIR}/dummy_wx)
 
-    # 7. Targets & Definitions
+    # 8. Targets & Definitions
     if(NOT TARGET wxWidgets::all)
         add_library(wxWidgets::all INTERFACE IMPORTED)
     endif()
