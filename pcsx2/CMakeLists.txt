@@ -559,15 +559,15 @@ elseif(NOT PCSX2_CORE)
 
 	file(MAKE_DIRECTORY ${PADImgHeader})
 
-	foreach(result_file IN ITEMS
-			analog circle cross dp_bottom dp_left dp_right dp_up dualshock2
-			joystick_cursor l1 r1 l2 r2 l3 r3 select square start triangle arrow_up
-			arrow_bottom arrow_left arrow_right)
-		add_custom_command(
-			OUTPUT  "${PADImgHeader}/${result_file}.h"
-			DEPENDS ${BIN2CPPDEP} "${PADImg}/${result_file}.png"
-			COMMAND ${BIN2CPP} "${PADImg}/${result_file}.png" "${PADImgHeader}/${result_file}" )
-	endforeach()
+	#foreach(result_file IN ITEMS
+			#analog circle cross dp_bottom dp_left dp_right dp_up dualshock2
+			#joystick_cursor l1 r1 l2 r2 l3 r3 select square start triangle arrow_up
+			#arrow_bottom arrow_left arrow_right)
+		#add_custom_command(
+			#OUTPUT  "${PADImgHeader}/${result_file}.h"
+			#DEPENDS ${BIN2CPPDEP} "${PADImg}/${result_file}.png"
+			#COMMAND ${BIN2CPP} "${PADImg}/${result_file}.png" "${PADImgHeader}/${result_file}" )
+	#endforeach()
 
 	# PAD/Linux sources
 	set(pcsx2PADSources
@@ -1007,123 +1007,10 @@ endif()
 
 # gui sources
 set(pcsx2GuiSources
-	gui/AppAssert.cpp
-	gui/AppConfig.cpp
-	gui/AppCoreThread.cpp
-	gui/AppEventSources.cpp
-	gui/AppHost.cpp
-	gui/AppUserMode.cpp
-	gui/AppInit.cpp
-	gui/AppMain.cpp
-	gui/AppRes.cpp
-	gui/CheckedStaticBox.cpp
-	gui/ConsoleLogger.cpp
-	gui/Dialogs/AboutBoxDialog.cpp
-	gui/Dialogs/GSDumpDialog.cpp
-	gui/Dialogs/AssertionDialog.cpp
-	gui/Dialogs/BaseConfigurationDialog.cpp
-	gui/Dialogs/ConfirmationDialogs.cpp
-	gui/Dialogs/ConvertMemoryCardDialog.cpp
-	gui/Dialogs/CreateMemoryCardDialog.cpp
-	gui/Dialogs/FirstTimeWizard.cpp
-	gui/Dialogs/ImportSettingsDialog.cpp
-	gui/Dialogs/LogOptionsDialog.cpp
-	gui/Dialogs/McdConfigDialog.cpp
-	gui/Dialogs/PickUserModeDialog.cpp
-	gui/Dialogs/SysConfigDialog.cpp
-	gui/Dialogs/IPCDialog.cpp
-	gui/Debugger/BreakpointWindow.cpp
-	gui/Debugger/CtrlDisassemblyView.cpp
-	gui/Debugger/CtrlRegisterList.cpp
-	gui/Debugger/CtrlMemView.cpp
-	gui/Debugger/CtrlMemSearch.cpp
-	gui/Debugger/DebuggerLists.cpp
-	gui/Debugger/DisassemblyDialog.cpp
-	gui/Debugger/DebugEvents.cpp
-	gui/DriveList.cpp
-	gui/ExecutorThread.cpp
-	gui/FrameForGS.cpp
-	gui/GlobalCommands.cpp
-	gui/i18n.cpp
-	gui/IsoDropTarget.cpp
-	gui/MainFrame.cpp
-	gui/MainMenuClicks.cpp
-	gui/MessageBoxes.cpp
-	gui/MSWstuff.cpp
-	gui/Panels/BaseApplicableConfigPanel.cpp
-	gui/Panels/BiosSelectorPanel.cpp
-	gui/Panels/CpuPanel.cpp
-	gui/Panels/DirPickerPanel.cpp
-	gui/Panels/GameFixesPanel.cpp
-	gui/Panels/GSWindowPanel.cpp
-	gui/Panels/LogOptionsPanels.cpp
-	gui/Panels/MemoryCardListPanel.cpp
-	gui/Panels/MemoryCardListView.cpp
-	gui/Panels/MiscPanelStuff.cpp
-	gui/Panels/PathsPanel.cpp
-	gui/Panels/SpeedhacksPanel.cpp
-	gui/Panels/VideoPanel.cpp
-	gui/pxCheckBox.cpp
-	gui/pxRadioPanel.cpp
-	gui/pxStaticText.cpp
-	gui/pxWindowTextWriter.cpp
-	gui/RecentIsoList.cpp
-	gui/Saveslots.cpp
-	gui/SysState.cpp
-	gui/ThreadingDialogs.cpp
-	gui/UpdateUI.cpp
-	gui/wxAppWithHelpers.cpp
-	gui/wxGuiTools.cpp
-	gui/wxHelpers.cpp
-	gui/wxSettingsInterface.cpp
 	)
 
 # gui headers
 set(pcsx2GuiHeaders
-	gui/AppAccelerators.h
-	gui/AppCommon.h
-	gui/AppConfig.h
-	gui/AppCoreThread.h
-	gui/AppEventListeners.h
-	gui/AppHost.h
-	gui/AppForwardDefs.h
-	gui/App.h
-	gui/ApplyState.h
-	gui/AppSaveStates.h
-	gui/CheckedStaticBox.h
-	gui/ConsoleLogger.h
-	gui/Debugger/BreakpointWindow.h
-	gui/Debugger/CtrlDisassemblyView.h
-	gui/Debugger/CtrlMemView.h
-	gui/Debugger/CtrlMemSearch.h
-	gui/Debugger/CtrlRegisterList.h
-	gui/Debugger/DebugEvents.h
-	gui/Debugger/DebuggerLists.h
-	gui/Debugger/DisassemblyDialog.h
-	gui/Dialogs/BaseConfigurationDialog.inl
-	gui/Dialogs/ConfigurationDialog.h
-	gui/Dialogs/LogOptionsDialog.h
-	gui/Dialogs/ModalPopups.h
-	gui/DriveList.h
-	gui/GSFrame.h
-	gui/i18n.h
-	gui/IsoDropTarget.h
-	gui/MainFrame.h
-	gui/MSWstuff.h
-	gui/Panels/ConfigurationPanels.h
-	gui/Panels/LogOptionsPanels.h
-	gui/Panels/MemoryCardPanels.h
-	gui/pxCheckBox.h
-	gui/pxEvents.h
-	gui/pxEventThread.h
-	gui/pxRadioPanel.h
-	gui/pxStaticText.h
-	gui/RecentIsoList.h
-	gui/Saveslots.h
-	gui/ThreadingDialogs.h
-	gui/ThreadingDialogs.cpp
-	gui/wxGuiTools.h
-	gui/wxSettingsInterface.h
 	)
 
 # Warning: the declaration of the .h are mandatory in case of resources files. It will ensure the creation
