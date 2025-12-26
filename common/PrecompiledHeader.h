@@ -19,5 +19,8 @@
 #include <cerrno>
 #include <cstdio>
 
-#include <wx/string.h>
-#include <wx/gdicmn.h>
+#if !defined(PCSX2_CORE) && !defined(__APPLE__)
+    #include <wx/string.h>
+    #include <wx/gdicmn.h>
+    // Include any other wx/ headers here
+#endif
