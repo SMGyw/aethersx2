@@ -27,10 +27,16 @@ if(APPLE)
     set(USE_OPENGL OFF CACHE BOOL "" FORCE)
     set(USE_VULKAN ON CACHE BOOL "" FORCE)
 
-    # 4. Include Dummy headers
+    # 4. Disable Audio Backends (Fix for 29% error in Cubeb)
+    set(USE_CUBEB OFF CACHE BOOL "" FORCE)
+    set(USE_ALSA OFF CACHE BOOL "" FORCE)
+    set(USE_PULSE OFF CACHE BOOL "" FORCE)
+    add_compile_definitions(CUBEB_GECKO_BUILD=0)
+
+    # 5. Include Dummy headers
     include_directories(${CMAKE_SOURCE_DIR}/dummy_wx)
 
-    # 5. Targets & Definitions
+    # 6. Targets & Definitions
     if(NOT TARGET wxWidgets::all)
         add_library(wxWidgets::all INTERFACE IMPORTED)
     endif()
@@ -38,7 +44,7 @@ if(APPLE)
     add_definitions(-D__ARM_NEON)
     add_definitions(-DPCSX2_TARGET_ARCH_ARM)
     
-    message(STATUS "Build target set to iOS ARM64 - SSE/AVX forced OFF")
+    message(STATUS "Build target set to iOS ARM64 - Audio/SSE forced OFF")
 endif()
 cmake_minimum_required(VERSION 3.10...3.17)
 
