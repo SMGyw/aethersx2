@@ -46,27 +46,31 @@ jobs:
         run: |
           # 1. Clean and Setup
           rm -rf build && mkdir build
-          mkdir -p dummy_wx/wx  # إنشاء مجلد للملفات الوهمية
+          mkdir -p dummy_wx/wx
           
-          # 2. Fix zlib and Audio conflicts (The Magic Trick)
+          # 2. Fix source conflicts
           find 3rdparty/libchdr/libchdr/deps/zlib-1.2.11 -name "zutil.h" -exec sed -i '' '/#.*define.*fdopen/d' {} +
           echo "// Empty file" > 3rdparty/cubeb/src/cubeb_resampler.cpp
           echo "// Empty file" > 3rdparty/cubeb/src/cubeb_audiounit.cpp
 
-          # 3. Create Mock wxWidgets Headers (To bypass 31% error)
+          # 3. Create Mock wxWidgets Headers
           echo "#pragma once" > dummy_wx/wx/intl.h
           echo "#pragma once" > dummy_wx/wx/tokenzr.h
-          echo "#pragma once" > dummy_wx/wx/string.h
-          echo "class wxString : public std::string { using std::string::string; };" >> dummy_wx/wx/string.h
+          echo "class wxString : public std::string { public: using std::string::string; wxString() : std::string() {} wxString(const std::string& s) : std::string(s) {} };" > dummy_wx/wx/string.h
           
           cd build
           
-          # 4. Configure with specialized flag to avoid wxString conflict
+          # 4. Generate Project Files (This creates the Makefiles)
           cmake .. -DCMAKE_BUILD_TYPE=Release \
+                   -DUSE_CUBEB=OFF \
+                   -DBUILD_CUBEB=OFF \
                    -DUSE_WXWIDGETS=OFF \
-                   -DPCSX2_CORE=ON \
-                   -DCORE=ON \
                    -DHAVE_FDOPEN=1
           
-          # 5. Build
+          # 5. NOW strip SSE flags from the generated files
+          echo "Stripping Intel flags from generated Makefiles..."
+          find . -type f -name "*.make" -exec sed -i '' 's/-mfpmath=sse//g' {} +
+          find . -type f -name "flags.make" -exec sed -i '' 's/-mfpmath=sse//g' {} +
+
+          # 6. Finally Build
           cmake --build . --config Release -- -j $(sysctl -n hw.logicalcpu)
