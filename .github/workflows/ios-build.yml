@@ -45,17 +45,18 @@ jobs:
       - name: Build Core
         run: |
           cd build
-          echo "Deep cleaning zlib and fixing headers..."
+          echo "Deep cleaning zlib, cubeb and fixing headers..."
           
           # 1. Remove any fdopen definitions in all zutil.h files to avoid iOS system conflict
           find .. -name "zutil.h" -exec sed -i '' '/#.*define.*fdopen/d' {} +
           
-          # 2. Force delete the specific object file that keeps failing
+          # 2. Force delete failing object files (zlib and cubeb)
           rm -rf 3rdparty/libchdr/libchdr/deps/zlib-1.2.11/CMakeFiles/zlib.dir/zutil.c.o
+          rm -rf 3rdparty/cubeb/CMakeFiles/cubeb.dir/src/cubeb_audiounit.cpp.o
           
           # 3. Strip Intel-specific flags from generated makefiles
           find . -type f -name "*.make" -exec sed -i '' 's/-mfpmath=sse//g' {} +
           find . -type f -name "flags.make" -exec sed -i '' 's/-mfpmath=sse//g' {} +
 
-          echo "Starting build process..."
+          echo "Starting clean build process..."
           cmake --build . --config Release -- -j $(sysctl -n hw.logicalcpu)
