@@ -44,14 +44,18 @@ jobs:
 
       - name: Build Core
         run: |
-          # 1. Clean and Setup
+          # 1. Cleanup
           rm -rf build && mkdir build
           mkdir -p dummy_wx/wx
           
-          # 2. Fix source conflicts
+          # 2. Patch source files (zlib & Audio & macOS GL)
           find 3rdparty/libchdr/libchdr/deps/zlib-1.2.11 -name "zutil.h" -exec sed -i '' '/#.*define.*fdopen/d' {} +
-          echo "// Empty file" > 3rdparty/cubeb/src/cubeb_resampler.cpp
-          echo "// Empty file" > 3rdparty/cubeb/src/cubeb_audiounit.cpp
+          echo "// Empty" > 3rdparty/cubeb/src/cubeb_resampler.cpp
+          echo "// Empty" > 3rdparty/cubeb/src/cubeb_audiounit.cpp
+          
+          # Fix for the 31% error (AGL is not for iOS)
+          echo "// Empty" > common/GL/ContextAGL.mm
+          echo "// Empty" > common/GL/ContextAGL.h
 
           # 3. Create Mock wxWidgets Headers
           echo "#pragma once" > dummy_wx/wx/intl.h
@@ -60,17 +64,17 @@ jobs:
           
           cd build
           
-          # 4. Generate Project Files (This creates the Makefiles)
+          # 4. Configure
           cmake .. -DCMAKE_BUILD_TYPE=Release \
                    -DUSE_CUBEB=OFF \
                    -DBUILD_CUBEB=OFF \
-                   -DUSE_WXWIDGETS=OFF \
+                   -DUSE_OPENGL=OFF \
+                   -DUSE_VULKAN=ON \
                    -DHAVE_FDOPEN=1
           
-          # 5. NOW strip SSE flags from the generated files
-          echo "Stripping Intel flags from generated Makefiles..."
+          # 5. Strip SSE flags
           find . -type f -name "*.make" -exec sed -i '' 's/-mfpmath=sse//g' {} +
           find . -type f -name "flags.make" -exec sed -i '' 's/-mfpmath=sse//g' {} +
 
-          # 6. Finally Build
+          # 6. Build
           cmake --build . --config Release -- -j $(sysctl -n hw.logicalcpu)
