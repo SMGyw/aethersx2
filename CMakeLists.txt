@@ -9,6 +9,14 @@ if(APPLE)
     add_compile_definitions(PCSX2_ARCH_X86=0)
     add_compile_definitions(FMT_USE_INT128=0)
     
+    # Force bypass any Intel intrinsics in the source code
+    add_compile_definitions(__SSE__=0)
+    add_compile_definitions(__SSE2__=0)
+    add_compile_definitions(__SSE3__=0)
+    add_compile_definitions(__SSE4_1__=0)
+    add_compile_definitions(__AVX__=0)
+    add_compile_definitions(__AVX2__=0)
+    
     # These lines ignore warnings to focus on real errors
     set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -w")
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -w")
@@ -30,7 +38,7 @@ if(APPLE)
     add_definitions(-D__ARM_NEON)
     add_definitions(-DPCSX2_TARGET_ARCH_ARM)
     
-    message(STATUS "Build target set to iOS ARM64 - Warnings suppressed")
+    message(STATUS "Build target set to iOS ARM64 - SSE/AVX forced OFF")
 endif()
 cmake_minimum_required(VERSION 3.10...3.17)
 
