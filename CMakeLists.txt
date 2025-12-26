@@ -37,8 +37,8 @@ if(APPLE)
     set(USE_SOUNDTOUCH OFF CACHE BOOL "" FORCE)
     add_compile_definitions(CUBEB_GECKO_BUILD=0)
     
-    # 6. Include Dummy headers
-    include_directories(${CMAKE_SOURCE_DIR}/dummy_wx)
+    # Ensure dummy_wx is checked FIRST
+    include_directories(BEFORE ${CMAKE_SOURCE_DIR}/dummy_wx)
 
     # 7. Targets & Definitions
     if(NOT TARGET wxWidgets::all)
