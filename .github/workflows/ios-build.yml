@@ -44,19 +44,28 @@ jobs:
 
       - name: Build Core
         run: |
+          # 1. Start from a completely clean state
+          rm -rf build
+          mkdir build
+          
+          # 2. Hard-patch the zlib source code before CMake touches it
+          echo "Patching zlib source to prevent iOS conflicts..."
+          find 3rdparty/libchdr/libchdr/deps/zlib-1.2.11 -name "zutil.h" -exec sed -i '' '/#.*define.*fdopen/d' {} +
+          
           cd build
-          echo "Full cleanup to apply new CMake settings..."
           
-          # 1. Clean up old cache and cubeb files
-          rm -rf CMakeCache.txt
-          rm -rf CMakeFiles/
-          rm -rf 3rdparty/cubeb/
+          # 3. Configure CMake with all the fixes we discovered
+          echo "Configuring CMake for iOS ARM64..."
+          cmake .. -DCMAKE_BUILD_TYPE=Release \
+                   -DUSE_CUBEB=OFF \
+                   -DBUILD_CUBEB=OFF \
+                   -DUSE_SOUNDTOUCH=OFF \
+                   -DHAVE_FDOPEN=1
           
-          # 2. Re-run CMake to generate clean makefiles without Cubeb
-          cmake .. -DCMAKE_BUILD_TYPE=Release -DUSE_CUBEB=OFF -DBUILD_CUBEB=OFF
-          
-          # 3. Strip Intel-specific flags
+          # 4. Remove the persistent Intel SSE flags
           find . -type f -name "*.make" -exec sed -i '' 's/-mfpmath=sse//g' {} +
-          
-          echo "Starting clean build process..."
+          find . -type f -name "flags.make" -exec sed -i '' 's/-mfpmath=sse//g' {} +
+
+          # 5. Execute the build
+          echo "Starting the build process..."
           cmake --build . --config Release -- -j $(sysctl -n hw.logicalcpu)
