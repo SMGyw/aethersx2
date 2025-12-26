@@ -6,13 +6,13 @@ jobs:
     runs-on: macos-latest
     steps:
       - name: Checkout code
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
       - name: Install CMake and Dependencies
         run: |
           brew install cmake ninja
 
-- name: Create Dummy wxWidgets Headers
+      - name: Create Dummy wxWidgets Headers
         run: |
           mkdir -p dummy_wx/wx
           touch dummy_wx/wx/string.h
@@ -23,18 +23,15 @@ jobs:
           touch dummy_wx/wx/app.h
           touch dummy_wx/wx/confbase.h
           touch dummy_wx/wx/fileconf.h
+          touch dummy_wx/wx/event.h
 
       - name: Configure CMake
         run: |
-          # 1. Clean any old configuration to prevent cache errors
           rm -rf build
           mkdir -p build
-          
-          # 2. Get the ABSOLUTE path of the iOS SDK
           export IOS_SDK_PATH=$(xcrun --sdk iphoneos --show-sdk-path)
           echo "Current iOS SDK Path: $IOS_SDK_PATH"
           
-          # 3. Run CMake with the absolute path
           cmake -S . -B build \
             -G "Unix Makefiles" \
             -DCMAKE_SYSTEM_NAME=iOS \
@@ -48,12 +45,11 @@ jobs:
       - name: Build Core
         run: |
           cd build
-          # 1. Clean up the generated build files to remove the 'sse' math unit
           echo "Cleaning up invalid ARM flags..."
           find . -type f -name "*.make" -exec sed -i '' 's/-mfpmath=sse//g' {} +
           find . -type f -name "flags.make" -exec sed -i '' 's/-mfpmath=sse//g' {} +
           find . -type f -name "link.txt" -exec sed -i '' 's/-mfpmath=sse//g' {} +
           
-          # 2. Start the build process
           echo "Starting build..."
-          cmake --build . --config Release
+          # Added -j to speed up the build
+          cmake --build . --config Release -- -j $(sysctl -n hw.logicalcpu)
