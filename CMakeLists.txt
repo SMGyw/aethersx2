@@ -1,6 +1,7 @@
 # Project Name
 project(Pcsx2)
 if(APPLE)
+include_directories(${CMAKE_SOURCE_DIR}/dummy_wx)
     # 1. Architecture Settings
     # We let YAML set the SYSROOT to avoid "file not found" errors
     set(CMAKE_OSX_ARCHITECTURES "arm64" CACHE STRING "" FORCE)
