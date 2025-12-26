@@ -54,7 +54,7 @@ jobs:
           echo "// Empty" > 3rdparty/cubeb/src/cubeb_audiounit.cpp
           echo "// Empty" > common/GL/ContextAGL.mm
 
-          # 3. The "Ultimate Bridge" Header (Fixes the final 4 errors)
+          # 3. Create the "Ultimate Bridge" Header (Fixing the final 4 errors)
           cat <<EOF > dummy_wx/wx/string.h
           #pragma once
           #include <string>
@@ -67,12 +67,12 @@ jobs:
               wxString() : std::string("") {}
               wxString(const std::string& s) : std::string(s) {}
               wxString(const char* s) : std::string(s ? s : "") {}
-              
+              wxString(char c) : std::string(1, c) {}
+
               const char* c_str() const { return std::string::c_str(); }
               const char* mb_str() const { return std::string::c_str(); }
               bool Empty() const { return empty(); }
               void Clear() { clear(); }
-              long ToLong(long* val) const { try { *val = std::stol(*this); return true; } catch(...) { return false; } }
               
               // Formatting support for Console.cpp
               static wxString Format(const char* fmt, ...) {
@@ -81,22 +81,29 @@ jobs:
                   return wxString(buf);
               }
 
-              // Operator overloads for comparisons in AlignedMalloc/VirtualMemory
-              bool operator==(const char* s) const { return std::string::compare(s ? s : "") == 0; }
+              // Fix for AlignedMalloc/VirtualMemory comparisons and additions
+              wxString& operator<<(const wxString& s) { append(s); return *this; }
+              wxString& operator<<(const char* s) { append(s ? s : ""); return *this; }
+              wxString& operator<<(int i) { append(std::to_string(i)); return *this; }
+              
+              bool operator==(const char* s) const { return compare(s ? s : "") == 0; }
               bool operator!=(const char* s) const { return !(*this == s); }
-              friend std::ostream& operator<<(std::ostream& os, const wxString& s) { return os << (std::string)s; }
+              
+              // Conversion helper
+              long ToLong(long* val) const { try { *val = std::stol(*this); return true; } catch(...) { return false; } }
           };
           #ifndef WXSTRING_DEFINED
           #define WXSTRING_DEFINED
           #endif
           EOF
 
-          # Create essential missing headers
+          # Create helper headers
           echo "#pragma once" > dummy_wx/wx/intl.h
           echo "#define _(x) x" >> dummy_wx/wx/intl.h
+          echo "#define wxTRANSLATE(x) x" >> dummy_wx/wx/intl.h
           touch dummy_wx/wx/tokenzr.h dummy_wx/wx/log.h dummy_wx/wx/numformatter.h
           
-          # 4. Critical: Remove the internal typedef that conflicts with our class
+          # 4. Critical: Strip the problematic internal typedefs in common/
           find common -type f \( -name "*.h" -o -name "*.cpp" \) -exec sed -i '' 's/typedef std::string wxString;/\/\/ removed/g' {} +
 
           cd build
