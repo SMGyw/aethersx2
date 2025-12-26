@@ -29,9 +29,12 @@ jobs:
       - name: Build Core
         run: |
           cd build
-          # Use Environment Variables instead of command line flags to avoid syntax errors
-          export CXXFLAGS="-Wno-unused-command-line-argument -U__SSE__ -U__SSE2__"
-          export CFLAGS="-Wno-unused-command-line-argument -U__SSE__ -U__SSE2__"
+          # 1. Clean up the generated build files to remove the 'sse' math unit
+          echo "Cleaning up invalid ARM flags..."
+          find . -type f -name "*.make" -exec sed -i '' 's/-mfpmath=sse//g' {} +
+          find . -type f -name "flags.make" -exec sed -i '' 's/-mfpmath=sse//g' {} +
+          find . -type f -name "link.txt" -exec sed -i '' 's/-mfpmath=sse//g' {} +
           
-          # Run build with Verbose mode to see every single command
-          cmake --build . --config Release --verbose
+          # 2. Start the build process
+          echo "Starting build..."
+          cmake --build . --config Release
