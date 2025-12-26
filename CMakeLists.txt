@@ -7,8 +7,8 @@ if(APPLE)
     string(REPLACE "-msse3" "" CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS}")
     string(REPLACE "-msse4.1" "" CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS}")
     
-    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -mno-sse")
-    set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -mno-sse")
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -mno-sse -mno-sse2 -mno-sse3 -mno-sse4.1")
+    set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -mno-sse -mno-sse2 -mno-sse3 -mno-sse4.1")
     
     add_definitions(-D__ARM_NEON)
 endif()
