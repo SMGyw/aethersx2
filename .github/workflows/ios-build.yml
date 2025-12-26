@@ -53,21 +53,18 @@ jobs:
           echo "// Empty" > 3rdparty/cubeb/src/cubeb_audiounit.cpp
           echo "// Empty" > common/GL/ContextAGL.mm
 
-          # 3. THE NUCLEAR OPTION: Source Code Surgery
-          # A) Remove any #include <wx/...> to prevent the compiler from looking for them
+          # 3. THE NUCLEAR OPTION: Source Code Surgery (CORRECTED SYNTAX)
           echo "Removing wx includes from source..."
           find common -type f \( -name "*.cpp" -o -name "*.h" \) -exec sed -i '' '/#include <wx\//d' {} +
           
-          # B) Comment out the internal typedef that causes the "4 errors"
           echo "Disabling internal wxString typedefs..."
           find common -type f \( -name "*.cpp" -o -name "*.h" \) -exec sed -i '' 's/typedef std::string wxString;/\/\/ disabled/g' {} +
 
-          # C) Global replacement of wxString with std::string directly in the files
           echo "Replacing wxString with std::string in common files..."
           find common -type f \( -name "*.cpp" -o -name "*.h" \) -exec sed -i '' 's/wxString/std::string/g' {} +
           
-          # D) Fix wxString::Format to std::string(buffer) style (Simplified)
-          find common -type f \( -name "*.cpp" -o -name "*.h" \) -exec sed -i '' 's/std::string::Format/std::string/g' {}+
+          echo "Fixing string formatting calls..."
+          find common -type f \( -name "*.cpp" -o -name "*.h" \) -exec sed -i '' 's/std::string::Format/std::string/g' {} +
 
           cd build
           
