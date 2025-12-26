@@ -46,40 +46,65 @@ jobs:
         run: |
           # 1. Clean build directory
           rm -rf build && mkdir build
+          mkdir -p dummy_wx/wx
           
-          # 2. Fix zlib and external deps
+          # 2. Fix external deps
           find 3rdparty/libchdr/libchdr/deps/zlib-1.2.11 -name "zutil.h" -exec sed -i '' '/#.*define.*fdopen/d' {} +
           echo "// Empty" > 3rdparty/cubeb/src/cubeb_resampler.cpp
           echo "// Empty" > 3rdparty/cubeb/src/cubeb_audiounit.cpp
           echo "// Empty" > common/GL/ContextAGL.mm
 
-          # 3. THE NUCLEAR OPTION: Source Code Surgery (CORRECTED SYNTAX)
-          echo "Removing wx includes from source..."
-          find common -type f \( -name "*.cpp" -o -name "*.h" \) -exec sed -i '' '/#include <wx\//d' {} +
-          
-          echo "Disabling internal wxString typedefs..."
-          find common -type f \( -name "*.cpp" -o -name "*.h" \) -exec sed -i '' 's/typedef std::string wxString;/\/\/ disabled/g' {} +
+          # 3. The Ultimate "Injected" Mock Header
+          # This class provides ALL missing functions that caused the 20 errors
+          cat <<EOF > dummy_wx/wx_bridge.h
+          #pragma once
+          #include <string>
+          #include <stdarg.h>
+          #include <algorithm>
 
-          echo "Replacing wxString with std::string in common files..."
-          find common -type f \( -name "*.cpp" -o -name "*.h" \) -exec sed -i '' 's/wxString/std::string/g' {} +
-          
-          echo "Fixing string formatting calls..."
-          find common -type f \( -name "*.cpp" -o -name "*.h" \) -exec sed -i '' 's/std::string::Format/std::string/g' {} +
+          class wxString : public std::string {
+          public:
+              using std::string::string;
+              wxString() : std::string("") {}
+              wxString(const std::string& s) : std::string(s) {}
+              wxString(const char* s) : std::string(s ? s : "") {}
+              
+              const char* c_str() const { return std::string::c_str(); }
+              bool IsEmpty() const { return empty(); }
+              void Clear() { clear(); }
+              wxString Lower() const { wxString s = *this; std::transform(s.begin(), s.end(), s.begin(), ::tolower); return s; }
+              bool StartsWith(const std::string& prefix) const { return this->compare(0, prefix.length(), prefix) == 0; }
+              
+              static wxString Format(const char* fmt, ...) {
+                  char buf[4096]; va_list args; va_start(args, fmt);
+                  vsnprintf(buf, sizeof(buf), fmt, args); va_end(args);
+                  return wxString(buf);
+              }
+          };
+          #define wxT(x) x
+          #define _(x) x
+          EOF
+
+          # 4. Source Surgery: Remove ONLY the conflicting typedefs
+          find common -type f \( -name "*.cpp" -o -name "*.h" \) -exec sed -i '' 's/typedef std::string wxString;/\/\/ removed/g' {} +
 
           cd build
           
-          # 4. Configure with absolute minimalism
+          # 5. Configure with FORCE INCLUDE
+          # This tells the compiler to automatically include our bridge in EVERY file
+          export CXXFLAGS="-include ${GITHUB_WORKSPACE}/dummy_wx/wx_bridge.h"
+          
           cmake .. -DCMAKE_BUILD_TYPE=Release \
                    -DUSE_CUBEB=OFF \
                    -DBUILD_CUBEB=OFF \
                    -DUSE_WXWIDGETS=OFF \
                    -DUSE_OPENGL=OFF \
-                   -DHAVE_FDOPEN=1
+                   -DHAVE_FDOPEN=1 \
+                   -DCMAKE_CXX_FLAGS="$CXXFLAGS"
 
-          # 5. Final Intel Flag Cleanup
+          # 6. Final Intel Flag Cleanup
           find . -type f -name "*.make" -exec sed -i '' 's/-mfpmath=sse//g' {} +
           find . -type f -name "flags.make" -exec sed -i '' 's/-mfpmath=sse//g' {} +
 
-          # 6. Run Build
-          echo "Starting the build after source surgery..."
+          # 7. Run Build
           cmake --build . --config Release -- -j $(sysctl -n hw.logicalcpu)
