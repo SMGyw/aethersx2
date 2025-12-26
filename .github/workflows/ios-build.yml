@@ -29,8 +29,9 @@ jobs:
       - name: Build Core
         run: |
           cd build
-          # 1. Force CMake to show the EXACT command that causes the error (Verbose mode)
-          # 2. Tell the compiler to ignore SSE completely using the -U (Undefine) flag
-          cmake --build . --config Release --VERBOSE=1 -- -j$(sysctl -n hw.ncpu) \
-          CXXFLAGS="-U__SSE__ -U__SSE2__ -mno-sse -mno-sse2" \
-          CFLAGS="-U__SSE__ -U__SSE2__ -mno-sse -mno-sse2"
+          # Use Environment Variables instead of command line flags to avoid syntax errors
+          export CXXFLAGS="-Wno-unused-command-line-argument -U__SSE__ -U__SSE2__"
+          export CFLAGS="-Wno-unused-command-line-argument -U__SSE__ -U__SSE2__"
+          
+          # Run build with Verbose mode to see every single command
+          cmake --build . --config Release --verbose
