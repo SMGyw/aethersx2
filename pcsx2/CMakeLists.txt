@@ -1312,7 +1312,8 @@ if(LTO_PCSX2_CORE)
 else()
 	target_sources(PCSX2 PRIVATE ${pcsx2LTOSources})
 endif()
-
+set(pcsx2PADHeaders "")
+set(pcsx2PADSources "")
 # common Sources
 target_sources(PCSX2 PRIVATE
 	${pcsx2CDVDSources}
