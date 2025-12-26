@@ -4,7 +4,15 @@
 // All rights reserved.
 //
 // For the license information refer to format.h.
+#ifdef __SSE__
+#undef __SSE__
+#endif
 
+#ifdef __SSE2__
+#undef __SSE2__
+#endif
+
+#define FMT_USE_SSE2 0
 #include "fmt/format-inl.h"
 
 FMT_BEGIN_NAMESPACE
