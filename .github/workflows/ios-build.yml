@@ -29,4 +29,10 @@ jobs:
       - name: Build Core
         run: |
           cd build
+          # Clear any old cache and force ARM flags during build
+          cmake . -DCMAKE_OSX_ARCHITECTURES="arm64" \
+                  -DCMAKE_CXX_FLAGS="-mno-sse -mno-sse2 -U__SSE__ -U__SSE2__" \
+                  -DCMAKE_C_FLAGS="-mno-sse -mno-sse2 -U__SSE__ -U__SSE2__"
+          
+          # Now build
           cmake --build . --config Release
