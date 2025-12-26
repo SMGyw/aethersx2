@@ -1529,8 +1529,8 @@ if (APPLE)
 		OUTPUT_NAME PCSX2
 	)
 
-	target_sources(PCSX2 PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/gui/Resources/PCSX2.icns")
-	set_source_files_properties("${CMAKE_CURRENT_SOURCE_DIR}/gui/Resources/PCSX2.icns" PROPERTIES MACOSX_PACKAGE_LOCATION Resources)
+	#target_sources(PCSX2 PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/gui/Resources/PCSX2.icns")
+	#set_source_files_properties("${CMAKE_CURRENT_SOURCE_DIR}/gui/Resources/PCSX2.icns" PROPERTIES MACOSX_PACKAGE_LOCATION Resources)
 
 	# Add in shaders and other resources.
 	file(GLOB resource_files "${CMAKE_SOURCE_DIR}/bin/resources/*")
