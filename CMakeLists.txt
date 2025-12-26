@@ -1,34 +1,32 @@
 # Project Name
 project(Pcsx2)
 if(APPLE)
-    # 1. Architecture and System
+    # 1. Architecture Settings
     set(CMAKE_OSX_ARCHITECTURES "arm64" CACHE STRING "" FORCE)
     
-    # 2. Force Disable Intel Features (To fix errors around 20%)
-    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -mno-sse -mno-sse2 -mno-sse3 -mno-sse4.1 -mno-avx -mno-avx2")
+    # 2. Define ARM architecture (REMOVED SSE FLAGS)
     add_compile_definitions(PCSX2_ARCH_ARM64=1)
     add_compile_definitions(PCSX2_ARCH_X86=0)
+    add_compile_definitions(FMT_USE_INT128=0)
     
-    # 3. Disable UI and External libs
+    # 3. Core & Feature Settings
     set(USE_WXWIDGETS OFF CACHE BOOL "" FORCE)
     set(PCSX2_CORE ON CACHE BOOL "" FORCE)
     set(USE_OPENGL OFF CACHE BOOL "" FORCE)
     set(USE_VULKAN ON CACHE BOOL "" FORCE)
 
-    # 4. Include our Dummy headers
+    # 4. Include Dummy headers
     include_directories(${CMAKE_SOURCE_DIR}/dummy_wx)
 
-    # 5. Create Dummy Target for Linking
+    # 5. Targets & Definitions
     if(NOT TARGET wxWidgets::all)
         add_library(wxWidgets::all INTERFACE IMPORTED)
     endif()
 
-    # 6. NEON optimizations for ARM
     add_definitions(-D__ARM_NEON)
     add_definitions(-DPCSX2_TARGET_ARCH_ARM)
-    add_compile_definitions(FMT_USE_INT128=0)
     
-    message(STATUS "Applied Core-Only ARM patches for iOS")
+    message(STATUS "Build target set to iOS ARM64 - SSE flags removed")
 endif()
 cmake_minimum_required(VERSION 3.10...3.17)
 
