@@ -12,19 +12,20 @@ jobs:
         run: |
           brew install cmake ninja
 
-      - name: Configure CMake for iOS
+      - name: Configure CMake
         run: |
-          mkdir build
-          cd build
-          cmake .. -DCMAKE_SYSTEM_NAME=iOS \
-                   -DCMAKE_OSX_SYSROOT=iphoneos \
-                   -DCMAKE_OSX_ARCHITECTURES=arm64 \
-                   -DPLATFORM=ios \
-                   -DUSE_SYSTEM_LIBS=OFF \
-                   -DENABLE_SOUNDTOUCH=OFF \
-                   -DSOUNDTOUCH_FOUND=FALSE \
-                   -DCMAKE_DISABLE_FIND_PACKAGE_SoundTouch=TRUE \
-                   --no-warn-unused-cli
+          mkdir -p build
+          # This command finds the actual path of the iPhone SDK on the runner
+          export SDKROOT=$(xcrun --sdk iphoneos --show-sdk-path)
+          
+          cmake -S . -B build \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_SYSTEM_NAME=iOS \
+            -DCMAKE_OSX_SYSROOT=$SDKROOT \
+            -DCMAKE_OSX_ARCHITECTURES=arm64 \
+            -DUSE_WXWIDGETS=OFF \
+            -DPCSX2_CORE=ON \
+            -DENABLE_SETCAP=OFF
 
       - name: Build Core
         run: |
