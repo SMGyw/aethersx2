@@ -4,10 +4,14 @@ if(APPLE)
     # 1. Architecture Settings
     set(CMAKE_OSX_ARCHITECTURES "arm64" CACHE STRING "" FORCE)
     
-    # 2. Define ARM architecture (REMOVED SSE FLAGS)
+    # 2. Define ARM architecture & Suppress Warnings
     add_compile_definitions(PCSX2_ARCH_ARM64=1)
     add_compile_definitions(PCSX2_ARCH_X86=0)
     add_compile_definitions(FMT_USE_INT128=0)
+    
+    # These lines ignore warnings to focus on real errors
+    set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -w")
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -w")
     
     # 3. Core & Feature Settings
     set(USE_WXWIDGETS OFF CACHE BOOL "" FORCE)
@@ -26,7 +30,7 @@ if(APPLE)
     add_definitions(-D__ARM_NEON)
     add_definitions(-DPCSX2_TARGET_ARCH_ARM)
     
-    message(STATUS "Build target set to iOS ARM64 - SSE flags removed")
+    message(STATUS "Build target set to iOS ARM64 - Warnings suppressed")
 endif()
 cmake_minimum_required(VERSION 3.10...3.17)
 
