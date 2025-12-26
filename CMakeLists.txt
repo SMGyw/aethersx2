@@ -8,6 +8,7 @@ if(APPLE)
     add_compile_definitions(PCSX2_ARCH_ARM64=1)
     add_compile_definitions(PCSX2_ARCH_X86=0)
     add_compile_definitions(FMT_USE_INT128=0)
+    add_compile_definitions(HAVE_FDOPEN=1) # Fix for zlib/iOS stdio conflict
     
     # Force bypass any Intel intrinsics in the source code
     add_compile_definitions(__SSE__=0)
@@ -17,37 +18,36 @@ if(APPLE)
     add_compile_definitions(__AVX__=0)
     add_compile_definitions(__AVX2__=0)
     
-    # These lines ignore warnings to focus on real errors
+    # 3. Compiler Flags - Ignore warnings and set target
     set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -w")
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -w")
     
-    # 3. Core & Feature Settings
+    # 4. Core & Feature Settings
     set(USE_WXWIDGETS OFF CACHE BOOL "" FORCE)
     set(PCSX2_CORE ON CACHE BOOL "" FORCE)
     set(USE_OPENGL OFF CACHE BOOL "" FORCE)
     set(USE_VULKAN ON CACHE BOOL "" FORCE)
 
-    # 4. Total Audio Disable (Kill Cubeb completely)
+    # 5. Total Audio Disable (Kill Cubeb completely to fix 28% error)
     set(USE_CUBEB OFF CACHE BOOL "" FORCE)
+    set(BUILD_CUBEB OFF CACHE BOOL "" FORCE)
     set(USE_ALSA OFF CACHE BOOL "" FORCE)
     set(USE_PULSE OFF CACHE BOOL "" FORCE)
     set(USE_PORTAUDIO OFF CACHE BOOL "" FORCE)
     set(USE_SOUNDTOUCH OFF CACHE BOOL "" FORCE)
     add_compile_definitions(CUBEB_GECKO_BUILD=0)
     
-    # This line tells CMake to ignore the cubeb subdirectory entirely
-    set(BUILD_CUBEB OFF CACHE BOOL "" FORCE)
-
-    # 5. Include Dummy headers
+    # 6. Include Dummy headers
     include_directories(${CMAKE_SOURCE_DIR}/dummy_wx)
 
-    # 6. Targets & Definitions
+    # 7. Targets & Definitions
     if(NOT TARGET wxWidgets::all)
         add_library(wxWidgets::all INTERFACE IMPORTED)
     endif()
 
     add_definitions(-D__ARM_NEON)
     add_definitions(-DPCSX2_TARGET_ARCH_ARM)
+    add_definitions(-D__IPHONE_OS__=1) # Force iOS mode
     
     message(STATUS "Build target set to iOS ARM64 - Audio/SSE forced OFF")
 endif()
