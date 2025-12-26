@@ -44,79 +44,60 @@ jobs:
 
       - name: Build Core
         run: |
-          # 1. Start fresh
+          # 1. Clean environment
           rm -rf build && mkdir build
           mkdir -p dummy_wx/wx
 
-          # 2. Patch source conflicts
+          # 2. Fix external dependencies
           find 3rdparty/libchdr/libchdr/deps/zlib-1.2.11 -name "zutil.h" -exec sed -i '' '/#.*define.*fdopen/d' {} +
           echo "// Empty" > 3rdparty/cubeb/src/cubeb_resampler.cpp
           echo "// Empty" > 3rdparty/cubeb/src/cubeb_audiounit.cpp
           echo "// Empty" > common/GL/ContextAGL.mm
 
-          # 3. Create the "Ultimate Bridge" Header (Fixing the final 4 errors)
+          # 3. Create the "Alias Bridge" (Fixing the 4 core errors)
           cat <<EOF > dummy_wx/wx/string.h
           #pragma once
           #include <string>
           #include <stdarg.h>
-          #include <iostream>
 
-          class wxString : public std::string {
-          public:
-              using std::string::string;
-              wxString() : std::string("") {}
-              wxString(const std::string& s) : std::string(s) {}
-              wxString(const char* s) : std::string(s ? s : "") {}
-              wxString(char c) : std::string(1, c) {}
+          // Use alias instead of inheritance to avoid template issues
+          typedef std::string wxString;
 
-              const char* c_str() const { return std::string::c_str(); }
-              const char* mb_str() const { return std::string::c_str(); }
-              bool Empty() const { return empty(); }
-              void Clear() { clear(); }
-              
-              // Formatting support for Console.cpp
-              static wxString Format(const char* fmt, ...) {
-                  char buf[2048]; va_list args; va_start(args, fmt);
-                  vsnprintf(buf, sizeof(buf), fmt, args); va_end(args);
-                  return wxString(buf);
-              }
+          // Provide missing wxWidgets-like functionality as inline helpers
+          inline wxString wxStringFormat(const char* fmt, ...) {
+              char buf[2048]; va_list args; va_start(args, fmt);
+              vsnprintf(buf, sizeof(buf), fmt, args); va_end(args);
+              return std::string(buf);
+          }
 
-              // Fix for AlignedMalloc/VirtualMemory comparisons and additions
-              wxString& operator<<(const wxString& s) { append(s); return *this; }
-              wxString& operator<<(const char* s) { append(s ? s : ""); return *this; }
-              wxString& operator<<(int i) { append(std::to_string(i)); return *this; }
-              
-              bool operator==(const char* s) const { return compare(s ? s : "") == 0; }
-              bool operator!=(const char* s) const { return !(*this == s); }
-              
-              // Conversion helper
-              long ToLong(long* val) const { try { *val = std::stol(*this); return true; } catch(...) { return false; } }
-          };
-          #ifndef WXSTRING_DEFINED
-          #define WXSTRING_DEFINED
-          #endif
+          #define wxEmptyString std::string("")
+          #define wxT(x) x
+          #define _(x) x
           EOF
 
-          # Create helper headers
+          # Create other required mock headers
           echo "#pragma once" > dummy_wx/wx/intl.h
           echo "#define _(x) x" >> dummy_wx/wx/intl.h
           echo "#define wxTRANSLATE(x) x" >> dummy_wx/wx/intl.h
-          touch dummy_wx/wx/tokenzr.h dummy_wx/wx/log.h dummy_wx/wx/numformatter.h
+          touch dummy_wx/wx/tokenzr.h dummy_wx/wx/log.h
           
-          # 4. Critical: Strip the problematic internal typedefs in common/
+          # 4. Patch Source: Force the code to use our std::string alias
+          # This removes the conflicting internal typedefs that cause the 32% hang
           find common -type f \( -name "*.h" -o -name "*.cpp" \) -exec sed -i '' 's/typedef std::string wxString;/\/\/ removed/g' {} +
+          # Replace any call to wxString::Format with our helper
+          find common -type f \( -name "*.h" -o -name "*.cpp" \) -exec sed -i '' 's/wxString::Format/wxStringFormat/g' {} +
 
           cd build
           
-          # 5. Configure
+          # 5. Configure CMake
           cmake .. -DCMAKE_BUILD_TYPE=Release \
                    -DUSE_CUBEB=OFF -DBUILD_CUBEB=OFF \
                    -DUSE_OPENGL=OFF -DUSE_VULKAN=ON \
                    -DUSE_WXWIDGETS=OFF -DHAVE_FDOPEN=1
 
-          # 6. Fix Intel Flags
+          # 6. Final Intel Flag Cleanup
           find . -type f -name "*.make" -exec sed -i '' 's/-mfpmath=sse//g' {} +
           find . -type f -name "flags.make" -exec sed -i '' 's/-mfpmath=sse//g' {} +
 
-          # 7. Build
+          # 7. Run Build
           cmake --build . --config Release -- -j $(sysctl -n hw.logicalcpu)
