@@ -14,15 +14,21 @@ jobs:
 
       - name: Configure CMake
         run: |
+          # 1. Clean any old configuration to prevent cache errors
+          rm -rf build
           mkdir -p build
-          # This command finds the actual path of the iPhone SDK on the runner
-          export SDKROOT=$(xcrun --sdk iphoneos --show-sdk-path)
           
+          # 2. Get the ABSOLUTE path of the iOS SDK
+          export IOS_SDK_PATH=$(xcrun --sdk iphoneos --show-sdk-path)
+          echo "Current iOS SDK Path: $IOS_SDK_PATH"
+          
+          # 3. Run CMake with the absolute path
           cmake -S . -B build \
-            -DCMAKE_BUILD_TYPE=Release \
+            -G "Unix Makefiles" \
             -DCMAKE_SYSTEM_NAME=iOS \
-            -DCMAKE_OSX_SYSROOT=$SDKROOT \
+            -DCMAKE_OSX_SYSROOT=$IOS_SDK_PATH \
             -DCMAKE_OSX_ARCHITECTURES=arm64 \
+            -DCMAKE_BUILD_TYPE=Release \
             -DUSE_WXWIDGETS=OFF \
             -DPCSX2_CORE=ON \
             -DENABLE_SETCAP=OFF
