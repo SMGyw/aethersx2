@@ -27,11 +27,16 @@ if(APPLE)
     set(USE_OPENGL OFF CACHE BOOL "" FORCE)
     set(USE_VULKAN ON CACHE BOOL "" FORCE)
 
-    # 4. Disable Audio Backends (Fix for 29% error in Cubeb)
+    # 4. Total Audio Disable (Kill Cubeb completely)
     set(USE_CUBEB OFF CACHE BOOL "" FORCE)
     set(USE_ALSA OFF CACHE BOOL "" FORCE)
     set(USE_PULSE OFF CACHE BOOL "" FORCE)
+    set(USE_PORTAUDIO OFF CACHE BOOL "" FORCE)
+    set(USE_SOUNDTOUCH OFF CACHE BOOL "" FORCE)
     add_compile_definitions(CUBEB_GECKO_BUILD=0)
+    
+    # This line tells CMake to ignore the cubeb subdirectory entirely
+    set(BUILD_CUBEB OFF CACHE BOOL "" FORCE)
 
     # 5. Include Dummy headers
     include_directories(${CMAKE_SOURCE_DIR}/dummy_wx)
