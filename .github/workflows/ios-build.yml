@@ -48,13 +48,19 @@ jobs:
           rm -rf build && mkdir build
           mkdir -p dummy_wx/wx
           
-          # 2. Hard Patch - Force empty files for macOS/Audio artifacts
+          # 2. Hard Patch for zlib (The 20% Fix)
+          # We must define HAVE_FDOPEN to prevent zlib from redefining it on iOS
+          find 3rdparty/libchdr/libchdr/deps/zlib-1.2.11 -name "zutil.h" -exec sed -i '' '1i\
+          #define HAVE_FDOPEN 1
+          ' {} +
+          
+          # 3. Force empty files for macOS/Audio artifacts
           echo "// Empty" > common/GL/ContextAGL.mm
           echo "// Empty" > common/GL/ContextAGL.h
           echo "// Empty" > 3rdparty/cubeb/src/cubeb_resampler.cpp
           echo "// Empty" > 3rdparty/cubeb/src/cubeb_audiounit.cpp
 
-          # 3. Create the Mock Bridge Header
+          # 4. Create the Mock Bridge Header (For 31%+)
           cat <<EOF > dummy_wx/wx_bridge.h
           #pragma once
           #include <string>
@@ -83,30 +89,26 @@ jobs:
 
           cd build
           
-          # 4. Configure with absolute flags to kill PCH
+          # 5. Configure with HAVE_FDOPEN and PCH disabled
           cmake .. -DCMAKE_BUILD_TYPE=Release \
                    -DUSE_CUBEB=OFF -DBUILD_CUBEB=OFF \
                    -DUSE_WXWIDGETS=OFF -DUSE_OPENGL=OFF \
                    -DHAVE_FDOPEN=1 \
                    -DPCSX2_USE_PCH=OFF \
-                   -DCLANG_ENABLE_PCH=OFF \
-                   -DCMAKE_PCH_INSTANTIATE_TEMPLATES=OFF
+                   -DCLANG_ENABLE_PCH=OFF
 
-          # 5. THE NUCLEAR SED: Forcefully remove PCH from the generated build system
-          echo "Hard-disabling PCH and cleaning flags..."
+          # 6. Post-Configure Fixes (The Magic Step)
+          echo "Deep cleaning flags..."
           find . -name "*.make" -exec sed -i '' 's/-include-pch [^ ]*//g' {} +
           find . -name "flags.make" -exec sed -i '' 's/-include-pch [^ ]*//g' {} +
           find . -name "*.make" -exec sed -i '' 's/-mfpmath=sse//g' {} +
           find . -name "flags.make" -exec sed -i '' 's/-mfpmath=sse//g' {} +
 
-          # 6. Targeted Bridge Injection
-          echo "Injecting bridge into common module..."
-          sed -i '' "s|CXX_FLAGS = |CXX_FLAGS = -include ${GITHUB_WORKSPACE}/dummy_wx/wx_bridge.h |" common/CMakeFiles/common.dir/flags.make
-
-          # 7. Final Step: Remove ContextAGL from the actual build list (The Ultimate Fix)
-          # We tell the build system that ContextAGL.mm.o is already "built" or empty
-          echo "Removing ContextAGL from build list..."
-          sed -i '' 's/ContextAGL.mm.o//g' common/CMakeFiles/common.dir/build.make
+          # 7. Re-Inject Bridge into common
+          echo "Injecting bridge..."
+          if [ -d "common/CMakeFiles/common.dir" ]; then
+            sed -i '' "s|CXX_FLAGS = |CXX_FLAGS = -include ${GITHUB_WORKSPACE}/dummy_wx/wx_bridge.h |" common/CMakeFiles/common.dir/flags.make
+          fi
 
           # 8. Run Build
           cmake --build . --config Release -- -j $(sysctl -n hw.logicalcpu)
