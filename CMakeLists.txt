@@ -1,6 +1,11 @@
 # Project Name
 project(Pcsx2)
-
+# Add this right after project(Pcsx2)
+if(APPLE)
+    add_compile_options("-mno-sse" "-mno-sse2" "-mno-sse3" "-mno-sse4.1")
+    add_definitions(-D__ARM_NEON)
+    set(CMAKE_OSX_ARCHITECTURES "arm64" CACHE STRING "" FORCE)
+endif()
 cmake_minimum_required(VERSION 3.10...3.17)
 
 # Force iOS and Apple definitions
