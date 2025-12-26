@@ -1,27 +1,31 @@
 # Project Name
 project(Pcsx2)
 if(APPLE)
-    # 1. Fundamental iOS Settings
+    # 1. Architecture Settings
+    # We let YAML set the SYSROOT to avoid "file not found" errors
     set(CMAKE_OSX_ARCHITECTURES "arm64" CACHE STRING "" FORCE)
-    set(CMAKE_OSX_SYSROOT "iphoneos" CACHE STRING "" FORCE)
     
-    # 2. Disable problematic features
+    # 2. Disable problematic features for iOS
     set(USE_WXWIDGETS OFF CACHE BOOL "" FORCE)
     set(PCSX2_CORE ON CACHE BOOL "" FORCE)
     set(USE_OPENGL OFF CACHE BOOL "" FORCE)
-    
-    # 3. THE FIX: Create a "Fake" wxWidgets library to stop Configure Errors
+
+    # 3. Create a dummy target to bypass wxWidgets link errors
     if(NOT TARGET wxWidgets::all)
         add_library(wxWidgets::all INTERFACE IMPORTED)
     endif()
 
-    # 4. ARM Definitions
+    # 4. CPU & Architecture Definitions
     add_definitions(-D__ARM_NEON)
     add_definitions(-DPCSX2_TARGET_ARCH_ARM)
     add_compile_definitions(PCSX2_ARCH_X86=0)
     add_compile_definitions(FMT_USE_SSE=0)
+    add_compile_definitions(FMT_USE_SSE2=0)
+
+    # 5. Compiler Flags to ignore non-critical errors
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wno-everything")
     
-    message(STATUS "Bypassing wxWidgets dependency for iOS build")
+    message(STATUS "iOS Build Configuration Active")
 endif()
 cmake_minimum_required(VERSION 3.10...3.17)
 
