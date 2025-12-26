@@ -29,10 +29,8 @@ jobs:
       - name: Build Core
         run: |
           cd build
-          # This command will find all references to sse in the generated build files and DELETE them
-          grep -r "-msse" . -l | xargs sed -i '' 's/-msse//g' || true
-          grep -r "-msse2" . -l | xargs sed -i '' 's/-msse2//g' || true
-          grep -r "sse" . -l | xargs sed -i '' 's/sse//g' || true
-          
-          # Now build normally
-          cmake --build . --config Release
+          # 1. Force CMake to show the EXACT command that causes the error (Verbose mode)
+          # 2. Tell the compiler to ignore SSE completely using the -U (Undefine) flag
+          cmake --build . --config Release --VERBOSE=1 -- -j$(sysctl -n hw.ncpu) \
+          CXXFLAGS="-U__SSE__ -U__SSE2__ -mno-sse -mno-sse2" \
+          CFLAGS="-U__SSE__ -U__SSE2__ -mno-sse -mno-sse2"
