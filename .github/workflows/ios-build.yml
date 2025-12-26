@@ -44,17 +44,19 @@ jobs:
 
       - name: Build Core
         run: |
-          # 1. Clean and Setup
+          # 1. Clean environment
           rm -rf build && mkdir build
           mkdir -p dummy_wx/wx
           
-          # 2. Fix external dependencies
-          find 3rdparty/libchdr/libchdr/deps/zlib-1.2.11 -name "zutil.h" -exec sed -i '' '/#.*define.*fdopen/d' {} +
+          # 2. Hard Patch for macOS/Audio artifacts
+          # This ensures these files are ignored even if CMake tries to build them
+          echo "// Empty" > common/GL/ContextAGL.mm
+          echo "// Empty" > common/GL/ContextAGL.h
           echo "// Empty" > 3rdparty/cubeb/src/cubeb_resampler.cpp
           echo "// Empty" > 3rdparty/cubeb/src/cubeb_audiounit.cpp
-          echo "// Empty" > common/GL/ContextAGL.mm
+          find 3rdparty/libchdr/libchdr/deps/zlib-1.2.11 -name "zutil.h" -exec sed -i '' '/#.*define.*fdopen/d' {} +
 
-          # 3. Create the Mock Bridge Header
+          # 3. Re-create the Mock Bridge Header
           cat <<EOF > dummy_wx/wx_bridge.h
           #pragma once
           #include <string>
@@ -81,27 +83,24 @@ jobs:
           #define _(x) x
           EOF
 
-          # 4. Patch Source: Remove conflicting typedefs
-          find common -type f \( -name "*.h" -o -name "*.cpp" \) -exec sed -i '' 's/typedef std::string wxString;/\/\/ removed/g' {} +
-
           cd build
           
-          # 5. Configure with NO global injection to avoid 0% error
+          # 4. Configure with PCH DISABLED
+          # We disable PRECOMPILED_HEADERS to prevent the 31% crash
           cmake .. -DCMAKE_BUILD_TYPE=Release \
                    -DUSE_CUBEB=OFF -DBUILD_CUBEB=OFF \
                    -DUSE_WXWIDGETS=OFF -DUSE_OPENGL=OFF \
-                   -DHAVE_FDOPEN=1
+                   -DHAVE_FDOPEN=1 \
+                   -DPCSX2_USE_PCH=OFF \
+                   -DCLANG_ENABLE_PCH=OFF
 
-          # 6. HEAVY STRIP: Remove SSE from every single makefile generated
-          echo "Deep cleaning SSE flags from all modules..."
+          # 5. Clean SSE flags
           find . -name "*.make" -exec sed -i '' 's/-mfpmath=sse//g' {} +
           find . -name "flags.make" -exec sed -i '' 's/-mfpmath=sse//g' {} +
-          find . -name "flags.make" -exec sed -i '' 's/-msse[0-9.]*//g' {} +
 
-          # 7. Targeted Injection: Inject the bridge ONLY into the 'common' module
-          # This avoids breaking 3rdparty/glslang
+          # 6. Targeted Bridge Injection (Injecting only where needed)
           echo "Injecting bridge into common module..."
           sed -i '' "s|CXX_FLAGS = |CXX_FLAGS = -include ${GITHUB_WORKSPACE}/dummy_wx/wx_bridge.h |" common/CMakeFiles/common.dir/flags.make
 
-          # 8. Run Build
+          # 7. Run Build
           cmake --build . --config Release -- -j $(sysctl -n hw.logicalcpu)
