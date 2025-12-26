@@ -1,8 +1,3 @@
-# Emergency Fix for iOS: Kill SSE
-add_definitions(-DFMT_USE_SSE=0)
-add_definitions(-D__SSE__=0)
-add_definitions(-D__SSE2__=0)
-return() # This is a trick to stop reading the rest of the file if it's causing issues
 cmake_minimum_required(VERSION 3.1...3.18)
 
 # Fallback for using newer policies on CMake <3.12.
