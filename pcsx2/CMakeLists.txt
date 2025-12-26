@@ -1006,16 +1006,16 @@ endif()
 
 
 # gui sources
-set(pcsx2GuiSources
-	#gui/AppAssert.cpp
-	#gui/AppConfig.cpp
-	#gui/AppCoreThread.cpp
-	#gui/AppEventSources.cpp
-	#gui/AppHost.cpp
-	#gui/AppUserMode.cpp
-	#gui/AppInit.cpp
-	#gui/AppMain.cpp
-	#gui/AppRes.cpp
+#set(pcsx2GuiSources
+	gui/AppAssert.cpp
+	gui/AppConfig.cpp
+	gui/AppCoreThread.cpp
+	gui/AppEventSources.cpp
+	gui/AppHost.cpp
+	gui/AppUserMode.cpp
+	gui/AppInit.cpp
+	gui/AppMain.cpp
+	gui/AppRes.cpp
 	gui/CheckedStaticBox.cpp
 	gui/ConsoleLogger.cpp
 	gui/Dialogs/AboutBoxDialog.cpp
