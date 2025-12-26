@@ -44,38 +44,56 @@ jobs:
 
       - name: Build Core
         run: |
-          # 1. Cleanup
+          # 1. Start fresh
           rm -rf build && mkdir build
-          
-          # 2. Patch zlib and remove Audio/GPU conflicts
+          mkdir -p dummy_wx/wx
+
+          # 2. Patch zlib & bypass macOS GL/Audio
           find 3rdparty/libchdr/libchdr/deps/zlib-1.2.11 -name "zutil.h" -exec sed -i '' '/#.*define.*fdopen/d' {} +
           echo "// Empty" > 3rdparty/cubeb/src/cubeb_resampler.cpp
           echo "// Empty" > 3rdparty/cubeb/src/cubeb_audiounit.cpp
           echo "// Empty" > common/GL/ContextAGL.mm
-          echo "// Empty" > common/GL/ContextAGL.h
 
-          # 3. FORCE REMOVE wxWidgets dependencies from Source Code
-          # This deletes any line containing #include <wx/...> in the common folder
-          echo "Removing wxWidgets includes from source..."
-          find common -type f \( -name "*.cpp" -o -name "*.h" \) -exec sed -i '' '/#include <wx\//d' {} +
+          # 3. Create the "Smart Bridge" Header
+          # This replaces the complex wxString with a compatible std::string wrapper
+          cat <<EOF > dummy_wx/wx/string.h
+          #pragma once
+          #include <string>
+          #include <stdarg.h>
+          class wxString : public std::string {
+          public:
+              using std::string::string;
+              wxString(const std::string& s) : std::string(s) {}
+              wxString(const char* s) : std::string(s ? s : "") {}
+              const char* c_str() const { return std::string::c_str(); }
+              const char* mb_str() const { return std::string::c_str(); }
+              bool Empty() const { return empty(); }
+              static wxString Format(const char* fmt, ...) {
+                  char buf[1024]; va_list args; va_start(args, fmt);
+                  vsnprintf(buf, sizeof(buf), fmt, args); va_end(args);
+                  return wxString(buf);
+              }
+          };
+          #ifndef WXSTRING_DEFINED
+          #define WXSTRING_DEFINED
+          #endif
+          EOF
+
+          # Create other missing headers
+          touch dummy_wx/wx/intl.h dummy_wx/wx/tokenzr.h dummy_wx/wx/log.h dummy_wx/wx/numformatter.h
           
-          # 4. Global replacement to fix the typedef conflict at 32%
-          # This comments out the problematic typedefs in Pcsx2Defs.h and others
-          find common -type f -name "*.h" -exec sed -i '' 's/typedef std::string wxString;/\/\/ typedef std::string wxString;/g' {} +
+          # 4. Clean source from hardcoded typedefs that cause the 32% crash
+          find common -type f -name "*.h" -exec sed -i '' 's/typedef std::string wxString;/\/\/ removed/g' {} +
 
           cd build
           
-          # 5. Configure with extra definition to bypass wxWidgets checks
+          # 5. Configure
           cmake .. -DCMAKE_BUILD_TYPE=Release \
-                   -DUSE_CUBEB=OFF \
-                   -DBUILD_CUBEB=OFF \
-                   -DUSE_OPENGL=OFF \
-                   -DUSE_VULKAN=ON \
-                   -DUSE_WXWIDGETS=OFF \
-                   -DHAVE_FDOPEN=1 \
-                   -DwxString=std::string
+                   -DUSE_CUBEB=OFF -DBUILD_CUBEB=OFF \
+                   -DUSE_OPENGL=OFF -DUSE_VULKAN=ON \
+                   -DUSE_WXWIDGETS=OFF -DHAVE_FDOPEN=1
 
-          # 6. Strip SSE flags
+          # 6. Fix Intel Flags
           find . -type f -name "*.make" -exec sed -i '' 's/-mfpmath=sse//g' {} +
           find . -type f -name "flags.make" -exec sed -i '' 's/-mfpmath=sse//g' {} +
 
