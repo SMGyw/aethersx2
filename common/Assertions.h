@@ -15,7 +15,9 @@
 
 #pragma once
 
-#include <wx/string.h>
+#if !defined(PCSX2_CORE) && !defined(__APPLE__)
+    #include <wx/string.h>
+#endif
 #include "common/Pcsx2Defs.h"
 
 #ifndef __pxFUNCTION__
