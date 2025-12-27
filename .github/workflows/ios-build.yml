@@ -44,25 +44,31 @@ jobs:
 
       - name: Build Core
         run: |
-          # 1. Environment Reset
+          # 1. Workspace Clean Start
           rm -rf build && mkdir build
           mkdir -p dummy_wx/wx
           export LC_CTYPE=C
           export LANG=C
           
-          # 2. SOURCE NEUTRALIZATION (Fixing 43% Objective-C Error)
-          # We provide a valid C++ stub and RENAME it to .cpp to bypass Apple Frameworks logic
-          echo "Creating C++ stubs..."
+          # 2. Source Neutralization (Fixing 43%)
+          # We provide a clean C++ stub
           echo "int agl_stub_symbol = 0;" > common/GL/ContextAGL.cpp
           echo "#pragma once" > common/GL/ContextAGL.h
           echo "void cubeb_stub() {}" > 3rdparty/cubeb/src/cubeb_resampler.cpp
 
-          # 3. Create Refined Mock Bridge Header
+          # 3. Smart Mock Bridge Header (Fixing Conflict Error)
+          # We undefine wxString before declaring our class to prevent the 'conflicts with type alias' error
           cat <<EOF > dummy_wx/wx_bridge.h
           #pragma once
           #include <string>
           #include <stdarg.h>
           #include <algorithm>
+          #include <iostream>
+
+          #ifdef wxString
+          #undef wxString
+          #endif
+
           class wxString : public std::string {
           public:
               using std::string::string;
@@ -80,10 +86,15 @@ jobs:
                   return wxString(buf);
               }
           };
+
+          #ifndef wxT
+          #define wxT(x) x
+          #endif
+          #ifndef _
+          #define _(x) x
+          #endif
           #define wxLogMessage(...) printf(__VA_ARGS__)
           #define wxPrintf(...) printf(__VA_ARGS__)
-          #define wxT(x) x
-          #define _(x) x
           EOF
 
           cd build
@@ -97,9 +108,8 @@ jobs:
                    -DPCSX2_USE_PCH=OFF -DCLANG_ENABLE_PCH=OFF -DENABLE_PCH=OFF \
                    -DCMAKE_DISABLE_PRECOMPILED_HEADERS=ON
 
-          # 5. THE NUCLEAR PATCH (Fixing 43% and 44%)
-          # We force the build system to use our .cpp stub instead of the original .mm
-          echo "Patching Makefiles to bypass Objective-C++..."
+          # 5. Surgical Patching (Bypassing Objective-C++ at 43%)
+          echo "Redirecting build system to use our C++ stub..."
           find . -name "build.make" -exec sed -i '' 's/ContextAGL.mm/ContextAGL.cpp/g' {} +
           find . -name "flags.make" -exec sed -i '' 's/-x objective-c++/ /g' {} +
           
