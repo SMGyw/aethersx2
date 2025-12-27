@@ -44,22 +44,22 @@ jobs:
 
       - name: Build Core
         run: |
-          # 1. Environment Prep
+          # 1. Fresh Start
           rm -rf build && mkdir build
           mkdir -p dummy_wx/wx
           export LC_CTYPE=C
           export LANG=C
           
-          # 2. SOURCE SURGERY (The 31% & 43% Permanent Fix)
-          # We disable PCH and macOS-specific files directly in the source logic
-          echo "Disabling PCH and AGL in CMakeLists..."
-          find . -name "CMakeLists.txt" -exec sed -i '' 's/target_precompiled_headers/#/g' {} +
-          sed -i '' '/ContextAGL.mm/d' common/CMakeLists.txt
+          # 2. SOURCE-LEVEL SURGERY (The 31%/32% Final Fix)
+          # Completely strip any mention of precompiled headers from CMake files
+          echo "Purging PCH from source files..."
+          find . -name "CMakeLists.txt" -exec sed -i '' '/target_precompiled_headers/d' {} +
+          find . -name "*.cmake" -exec sed -i '' '/target_precompiled_headers/d' {} +
           
-          # 3. Neutralize macOS/Audio headers
+          # 3. Neutralize macOS specific files (Preventing 43% error)
+          sed -i '' '/ContextAGL.mm/d' common/CMakeLists.txt
           echo "int dummy_agl = 0;" > common/GL/ContextAGL.mm
           echo "#pragma once" > common/GL/ContextAGL.h
-          echo "void dummy_res() {}" > 3rdparty/cubeb/src/cubeb_resampler.cpp
 
           # 4. Refined Mock Bridge Header
           cat <<EOF > dummy_wx/wx_bridge.h
@@ -92,26 +92,28 @@ jobs:
 
           cd build
           
-          # 5. Configure with hard-coded bypasses
+          # 5. Configure with Aggressive Bypass Flags
+          # We use -fno-pch to tell Clang/LLVM to never look for PCH files
           cmake .. -DCMAKE_BUILD_TYPE=Release \
                    -DUSE_CUBEB=OFF -DBUILD_CUBEB=OFF \
                    -DUSE_WXWIDGETS=OFF -DUSE_OPENGL=OFF \
-                   -DCMAKE_C_FLAGS="-DHAVE_FDOPEN=0 -Dfdopen=z_ios_fdopen" \
-                   -DCMAKE_CXX_FLAGS="-DHAVE_FDOPEN=0 -Dfdopen=z_ios_fdopen" \
+                   -DCMAKE_C_FLAGS="-DHAVE_FDOPEN=0 -Dfdopen=z_ios_fdopen -fno-pch" \
+                   -DCMAKE_CXX_FLAGS="-DHAVE_FDOPEN=0 -Dfdopen=z_ios_fdopen -fno-pch" \
                    -DPCSX2_USE_PCH=OFF -DCLANG_ENABLE_PCH=OFF -DENABLE_PCH=OFF \
                    -DCMAKE_DISABLE_PRECOMPILED_HEADERS=ON
 
-          # 6. Targeted Injection for Core Modules
+          # 6. Targeted Bridge Injection
           for mod in "common" "core" "pcsx2"; do
             if [ -d "$mod/CMakeFiles" ]; then
               find "$mod/CMakeFiles" -name "flags.make" -exec sed -i '' "s|CXX_FLAGS = |CXX_FLAGS = -include ${GITHUB_WORKSPACE}/dummy_wx/wx_bridge.h |" {} +
             fi
           done
 
-          # 7. Final Clean for generated artifacts
+          # 7. Final Makefile Cleaning
+          # Delete any remaining PCH rules from generated makefiles
+          find . -name "build.make" -exec sed -i '' '/cmake_pch/d' {} +
           find . -name "flags.make" -exec sed -i '' 's/-include-pch [^ ]*//g' {} +
           find . -name "flags.make" -exec sed -i '' 's/-mfpmath=sse//g' {} +
-          find . -name "flags.make" -exec sed -i '' 's/-x objective-c++/ /g' {} +
 
-          # 8. Start Build
+          # 8. Start Compilation
           cmake --build . --config Release -- -j $(sysctl -n hw.logicalcpu)
