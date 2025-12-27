@@ -44,22 +44,28 @@ jobs:
 
       - name: Build Core
         run: |
-          # 1. THE "SURGICAL" RESET
+          # 1. CLEAN RESET
           git checkout .
           git clean -fd
-          # Delete the problematic internal zlib to force system usage
-          rm -rf 3rdparty/libchdr/libchdr/deps/zlib-1.2.11
           rm -rf build && mkdir build
           mkdir -p dummy_wx/wx
           export LC_CTYPE=C
           export LANG=C
           
-          # 2. NEUTRALIZATION
+          # 2. THE ZLIB BYPASS (Fixing the CMake Error)
+          # Instead of deleting, we empty the CMakeLists of the internal zlib
+          # This satisfies the 'add_subdirectory' requirement without building it
+          if [ -d "3rdparty/libchdr/libchdr/deps/zlib-1.2.11" ]; then
+            echo "cmake_minimum_required(VERSION 3.0)" > 3rdparty/libchdr/libchdr/deps/zlib-1.2.11/CMakeLists.txt
+            echo "add_library(zlib INTERFACE)" >> 3rdparty/libchdr/libchdr/deps/zlib-1.2.11/CMakeLists.txt
+          fi
+
+          # 3. NEUTRALIZATION
           echo "// Empty" > common/GL/ContextAGL.mm
           echo "// Empty" > 3rdparty/cubeb/src/cubeb_resampler.cpp
           echo "// Empty" > 3rdparty/cubeb/src/cubeb_audiounit.cpp
 
-          # 3. THE REFINED BRIDGE
+          # 4. BRIDGE HEADER
           cat <<EOF > dummy_wx/wx_bridge.h
           #pragma once
           #ifdef __cplusplus
@@ -84,28 +90,26 @@ jobs:
           #endif
           EOF
 
-          # 4. MOCK WX HEADERS
+          # 5. MOCK WX HEADERS
           for h in tokenzr.h string.h log.h setup.h intl.h crt.h msgdlg.h filefn.h config.h; do
             echo "#include \"../wx_bridge.h\"" > dummy_wx/wx/$h
           done
 
           cd build
           
-          # 5. CONFIGURE WITH EXPLICIT ZLIB BYPASS
-          # We disable LIBCHDR which is dragging ZLIB into the build
+          # 6. CONFIGURE (Forcing System ZLIB)
           cmake .. -DCMAKE_BUILD_TYPE=Release \
                    -DUSE_CUBEB=OFF -DBUILD_CUBEB=OFF \
                    -DUSE_WXWIDGETS=OFF -DUSE_OPENGL=OFF -DUSE_VULKAN=ON \
-                   -DBUILD_LIBCHDR=OFF \
+                   -DZLIB_INCLUDE_DIR=/Applications/Xcode_16.4.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/usr/include \
+                   -DZLIB_LIBRARY=/Applications/Xcode_16.4.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/usr/lib/libz.tbd \
                    -DCMAKE_CXX_FLAGS="-I${GITHUB_WORKSPACE}/dummy_wx -include ${GITHUB_WORKSPACE}/dummy_wx/wx_bridge.h -DHAVE_FDOPEN=0" \
                    -DCMAKE_C_FLAGS="-I${GITHUB_WORKSPACE}/dummy_wx -DHAVE_FDOPEN=0" \
                    -DPCSX2_USE_PCH=OFF -DCLANG_ENABLE_PCH=OFF -DENABLE_PCH=OFF \
                    -DCMAKE_DISABLE_PRECOMPILED_HEADERS=ON
 
-          # 6. FINAL FLAG SCRUBBING
-          # Prevent any C++ macro from leaking into C files during compilation
+          # 7. POST-CONFIGURE FLAG CLEANUP
           find . -name "flags.make" -exec sed -i '' 's/-DwxString=std::string//g' {} +
-          find . -name "flags.make" -exec sed -i '' 's/-mfpmath=sse//g' {} +
           
-          # 7. START BUILD
+          # 8. START BUILD
           cmake --build . --config Release -- -j $(sysctl -n hw.logicalcpu)
