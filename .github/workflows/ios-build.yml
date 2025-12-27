@@ -50,11 +50,10 @@ jobs:
           export LC_CTYPE=C
           export LANG=C
           
-          # 2. THE TOTAL NEUTRALIZATION (Fixing ContextAGL & Cubeb once and for all)
-          echo "Clearing incompatible Mac-specific files..."
-          echo "// Empty file for iOS build" > common/GL/ContextAGL.mm
-          echo "// Empty file for iOS build" > 3rdparty/cubeb/src/cubeb_resampler.cpp
-          echo "// Empty file for iOS build" > 3rdparty/cubeb/src/cubeb_audiounit.cpp
+          # 2. SOURCE NEUTRALIZATION
+          echo "// Empty" > common/GL/ContextAGL.mm
+          echo "// Empty" > 3rdparty/cubeb/src/cubeb_resampler.cpp
+          echo "// Empty" > 3rdparty/cubeb/src/cubeb_audiounit.cpp
 
           # 3. ROBUST BRIDGE HEADER
           cat <<EOF > dummy_wx/wx_bridge.h
@@ -78,13 +77,13 @@ jobs:
           EOF
 
           # 4. CREATE MOCK WX STRUCTURE
-          # We add all potential missing headers here
           for h in tokenzr.h string.h log.h setup.h intl.h crt.h msgdlg.h filefn.h config.h; do
             echo "#include \"../wx_bridge.h\"" > dummy_wx/wx/$h
           done
 
-          # 5. SOURCE INJECTION
-          echo "Injecting bridge into core folders..."
+          # 5. SMART SELECTIVE INJECTION (Fixing the 20% zlib error)
+          # We ONLY inject into common, core, and pcsx2. We SKIP 3rdparty.
+          echo "Injecting bridge into core folders (skipping 3rdparty)..."
           for dir in "common" "core" "pcsx2" "aethersx2"; do
             if [ -d "$dir" ]; then
               find "$dir" -name "*.cpp" -exec sed -i '' '1i\
@@ -99,7 +98,6 @@ jobs:
           cd build
           
           # 6. CONFIGURE
-          # We force the compiler to ignore PCH and SSE
           cmake .. -DCMAKE_BUILD_TYPE=Release \
                    -DUSE_CUBEB=OFF -DBUILD_CUBEB=OFF \
                    -DUSE_WXWIDGETS=OFF -DUSE_OPENGL=OFF -DUSE_VULKAN=ON \
@@ -109,11 +107,9 @@ jobs:
                    -DCMAKE_DISABLE_PRECOMPILED_HEADERS=ON
 
           # 7. BUILD SYSTEM PATCHING
-          # Remove Mac-specific flags that Clang hates on iOS
           find . -name "flags.make" -exec sed -i '' 's/-x objective-c++/ /g' {} +
           find . -name "flags.make" -exec sed -i '' 's/-include-pch [^ ]*//g' {} +
           find . -name "flags.make" -exec sed -i '' 's/-mfpmath=sse//g' {} +
-          find . -name "flags.make" -exec sed -i '' 's/-msse[^ ]*//g' {} +
           
           # 8. START BUILD
           cmake --build . --config Release -- -j $(sysctl -n hw.logicalcpu)
