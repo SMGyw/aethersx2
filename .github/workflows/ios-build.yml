@@ -50,15 +50,18 @@ jobs:
           export LC_CTYPE=C
           export LANG=C
           
-          # 2. SOURCE-LEVEL NEUTRALIZATION (Fixing 31% Cubeb Error)
-          # We overwrite the problematic source files before CMake even starts
-          echo "Neutralizing cubeb and macOS sources..."
-          echo "void cubeb_resampler_dummy() {}" > 3rdparty/cubeb/src/cubeb_resampler.cpp
-          echo "void cubeb_audiounit_dummy() {}" > 3rdparty/cubeb/src/cubeb_audiounit.cpp
+          # 2. SOURCE SURGERY (The 31% & 43% Final Fix)
+          # Completely remove PCH commands and macOS files from the project structure
+          echo "Purging PCH and macOS dependencies from CMake source..."
+          find . -name "CMakeLists.txt" -exec sed -i '' '/target_precompiled_headers/d' {} +
+          sed -i '' '/ContextAGL.mm/d' common/CMakeLists.txt
+          
+          # 3. Create Mock Headers/Sources to satisfy dependencies
           echo "int agl_dummy = 0;" > common/GL/ContextAGL.mm
           echo "#pragma once" > common/GL/ContextAGL.h
+          echo "void cubeb_dummy() {}" > 3rdparty/cubeb/src/cubeb_resampler.cpp
 
-          # 3. Refined Mock Bridge Header
+          # 4. Refined Mock Bridge Header
           cat <<EOF > dummy_wx/wx_bridge.h
           #pragma once
           #include <string>
@@ -89,7 +92,7 @@ jobs:
 
           cd build
           
-          # 4. Configure with Strict iOS Environment
+          # 5. Configure with Aggressive Bypass
           cmake .. -DCMAKE_BUILD_TYPE=Release \
                    -DUSE_CUBEB=OFF -DBUILD_CUBEB=OFF \
                    -DUSE_WXWIDGETS=OFF -DUSE_OPENGL=OFF \
@@ -98,17 +101,21 @@ jobs:
                    -DPCSX2_USE_PCH=OFF -DCLANG_ENABLE_PCH=OFF -DENABLE_PCH=OFF \
                    -DCMAKE_DISABLE_PRECOMPILED_HEADERS=ON
 
-          # 5. Build System Patching (Surgical Strike)
-          # Clean PCH and SSE artifacts that CMake might have regenerated
+          # 6. Post-Configure "Nuclear" Patching
+          # Remove any PCH/SSE/Objective-C flags that survived the configuration
+          echo "Final cleaning of generated build files..."
           find . -name "flags.make" -exec sed -i '' 's/-include-pch [^ ]*//g' {} +
           find . -name "flags.make" -exec sed -i '' 's/-mfpmath=sse//g' {} +
-          
-          # Inject bridge into core modules
+          find . -name "flags.make" -exec sed -i '' 's/-x objective-c++/ /g' {} +
+          find . -name "build.make" -exec sed -i '' '/cmake_pch/d' {} +
+          find . -name "build.make" -exec sed -i '' '/ContextAGL.mm.o/d' {} +
+
+          # 7. Bridge Injection (For Core Modules)
           for mod in "common" "core" "pcsx2"; do
             if [ -d "$mod/CMakeFiles" ]; then
               find "$mod/CMakeFiles" -name "flags.make" -exec sed -i '' "s|CXX_FLAGS = |CXX_FLAGS = -include ${GITHUB_WORKSPACE}/dummy_wx/wx_bridge.h |" {} +
             fi
           done
 
-          # 6. Start Build
+          # 8. Start Build
           cmake --build . --config Release -- -j $(sysctl -n hw.logicalcpu)
