@@ -48,18 +48,14 @@ jobs:
           rm -rf build && mkdir build
           mkdir -p dummy_wx/wx
           
-          # 2. THE ZLIB FIX (Anti-20% Error)
-          # Force zlib to NEVER use fdopen by commenting it out in the header
-          echo "Patching zlib for iOS compatibility..."
+          # 2. Patch zlib and remove macOS specific files
           find 3rdparty/libchdr/libchdr/deps/zlib-1.2.11 -name "zconf.h" -exec sed -i '' 's/extern.*fdopen/ \/\/ extern fdopen/g' {} +
-          find 3rdparty/libchdr/libchdr/deps/zlib-1.2.11 -name "zutil.h" -exec sed -i '' '/#.*define.*fdopen/d' {} +
-          
-          # 3. Create Mock Bridge and empty artifacts
           echo "// Empty" > common/GL/ContextAGL.mm
           echo "// Empty" > common/GL/ContextAGL.h
           echo "// Empty" > 3rdparty/cubeb/src/cubeb_resampler.cpp
           echo "// Empty" > 3rdparty/cubeb/src/cubeb_audiounit.cpp
 
+          # 3. Create the Mock Bridge Header
           cat <<EOF > dummy_wx/wx_bridge.h
           #pragma once
           #include <string>
@@ -88,21 +84,25 @@ jobs:
 
           cd build
           
-          # 4. Configure with specialized flags for iOS stdio
+          # 4. Configure with PCH and OpenGLES forced off
           cmake .. -DCMAKE_BUILD_TYPE=Release \
                    -DUSE_CUBEB=OFF -DBUILD_CUBEB=OFF \
                    -DUSE_WXWIDGETS=OFF -DUSE_OPENGL=OFF \
                    -DHAVE_FDOPEN=0 \
                    -DPCSX2_USE_PCH=OFF \
-                   -DCLANG_ENABLE_PCH=OFF
+                   -DCLANG_ENABLE_PCH=OFF \
+                   -DENABLE_PCH=OFF
 
-          # 5. Post-Configure Stripping
+          # 5. THE ULTIMATE BYPASS: Strip PCH dependencies from the generated makefiles
+          echo "Disabling PCH in all generated build files..."
           find . -name "*.make" -exec sed -i '' 's/-include-pch [^ ]*//g' {} +
           find . -name "flags.make" -exec sed -i '' 's/-include-pch [^ ]*//g' {} +
-          find . -name "*.make" -exec sed -i '' 's/-mfpmath=sse//g' {} +
+          find . -name "build.make" -exec sed -i '' 's/.*cmake_pch.hxx.pch.*//g' {} +
+          
+          # Clean Intel Flags
           find . -name "flags.make" -exec sed -i '' 's/-mfpmath=sse//g' {} +
 
-          # 6. Inject Bridge
+          # 6. Inject Bridge only into 'common'
           if [ -d "common/CMakeFiles/common.dir" ]; then
             sed -i '' "s|CXX_FLAGS = |CXX_FLAGS = -include ${GITHUB_WORKSPACE}/dummy_wx/wx_bridge.h |" common/CMakeFiles/common.dir/flags.make
           fi
