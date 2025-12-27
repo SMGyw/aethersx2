@@ -48,22 +48,18 @@ jobs:
           rm -rf build && mkdir build
           mkdir -p dummy_wx/wx
           
-          # 2. THE ATOMIC ZLIB FIX (Force skip 20% error)
-          # We rewrite zutil.c content to remove the conflicting fdopen implementation entirely
-          echo "Rewriting zlib/zutil.c to eliminate iOS conflicts..."
-          cat <<EOF > 3rdparty/libchdr/libchdr/deps/zlib-1.2.11/zutil.c
-          #include "zutil.h"
-          #ifndef NO_DUMMY_ZUTIL
-          const char * const z_errmsg[10] = {
-          "need dictionary", "stream end", "", "file error", "stream error",
-          "data error", "mem error", "buf error", "version error", ""};
-          const char * ZEXPORT zlibVersion() { return ZLIB_VERSION; }
-          unsigned long ZEXPORT zlibCompileFlags() { return 0; }
-          void ZLIB_INTERNAL z_error (char *m) { (void)m; }
-          #endif
-          EOF
+          # 2. THE FINAL ZLIB OVERRIDE (Breaking the 20% barrier)
+          # We use a header injection to force zlib to think HAVE_FDOPEN is disabled
+          echo "Injecting iOS safety flags into zlib..."
+          sed -i '' '1i\
+          #define HAVE_FDOPEN 0\
+          #define NO_FDOPEN\
+          ' 3rdparty/libchdr/libchdr/deps/zlib-1.2.11/zutil.c
+          
+          # Force rename any occurrence to avoid linker conflicts
+          find 3rdparty/libchdr/libchdr/deps/zlib-1.2.11 -type f -exec sed -i '' 's/\bfdopen\b/z_ios_fdopen/g' {} +
 
-          # 3. Prevent macOS Framework issues (Fixing 43%)
+          # 3. Prevent macOS Graphics Frameworks (Fixing 43%)
           echo "// Empty" > common/GL/ContextAGL.mm
           echo "// Empty" > common/GL/ContextAGL.h
 
@@ -96,22 +92,24 @@ jobs:
 
           cd build
           
-          # 5. Configure CMake
+          # 5. Configure CMake with explicit system flags
           cmake .. -DCMAKE_BUILD_TYPE=Release \
                    -DUSE_CUBEB=OFF -DBUILD_CUBEB=OFF \
                    -DUSE_WXWIDGETS=OFF -DUSE_OPENGL=OFF \
                    -DHAVE_FDOPEN=0 -DNO_FDOPEN=1 \
                    -DPCSX2_USE_PCH=OFF -DCLANG_ENABLE_PCH=OFF
 
-          # 6. Post-Configure System Clean
-          echo "Stripping incompatible PCH and SSE flags..."
+          # 6. Build System Surgery (Stripping SSE and PCH)
+          echo "Cleaning build system from Intel and PCH artifacts..."
           find . -name "*.make" -exec sed -i '' 's/-include-pch [^ ]*//g' {} +
           find . -name "flags.make" -exec sed -i '' 's/-include-pch [^ ]*//g' {} +
           find . -name "*.make" -exec sed -i '' 's/-mfpmath=sse//g' {} +
           find . -name "flags.make" -exec sed -i '' 's/-mfpmath=sse//g' {} +
+          
+          # Force skip ContextAGL if it's still in the list
           find . -name "build.make" -exec sed -i '' 's/ContextAGL.mm.o//g' {} +
 
-          # 7. Targeted Injection
+          # 7. Target Injection for common module
           if [ -d "common/CMakeFiles/common.dir" ]; then
             sed -i '' "s|CXX_FLAGS = |CXX_FLAGS = -include ${GITHUB_WORKSPACE}/dummy_wx/wx_bridge.h |" common/CMakeFiles/common.dir/flags.make
           fi
