@@ -44,7 +44,7 @@ jobs:
 
       - name: Build Core
         run: |
-          # 1. HARD RESET (Clean all previous messy injections)
+          # 1. HARD RESET
           git checkout .
           git clean -fd
           rm -rf build && mkdir build
@@ -52,12 +52,13 @@ jobs:
           export LC_CTYPE=C
           export LANG=C
           
-          # 2. NEUTRALIZATION (Directly on source)
+          # 2. NEUTRALIZATION
           echo "// Empty" > common/GL/ContextAGL.mm
           echo "// Empty" > 3rdparty/cubeb/src/cubeb_resampler.cpp
           echo "// Empty" > 3rdparty/cubeb/src/cubeb_audiounit.cpp
 
-          # 3. THE ULTIMATE BRIDGE HEADER
+          # 3. THE REFINED BRIDGE (Fixing the "typedef" error)
+          # We only define things that ARE NOT already defined by the compiler command line
           cat <<EOF > dummy_wx/wx_bridge.h
           #pragma once
           #ifdef __cplusplus
@@ -66,9 +67,17 @@ jobs:
           #include <algorithm>
           #include <stdarg.h>
           #include <iostream>
-          typedef std::string wxString;
+
+          // System already defines wxString as std::string via -D, 
+          // so we don't use typedef here to avoid conflicts.
+          
+          #ifndef wxT
           #define wxT(x) x
+          #endif
+          #ifndef _
           #define _(x) x
+          #endif
+          
           #define wxEmptyString std::string("")
           #define wxLogMessage(...) printf(__VA_ARGS__)
           #define wxLogStatus(...) printf(__VA_ARGS__)
@@ -86,8 +95,8 @@ jobs:
 
           cd build
           
-          # 5. CONFIGURE (The "Flag Injection" Strategy)
-          # We don't touch .cpp files. We tell the compiler to include the bridge ONLY for C++ files.
+          # 5. CONFIGURE
+          # We keep the -include bridge but only for C++
           cmake .. -DCMAKE_BUILD_TYPE=Release \
                    -DUSE_CUBEB=OFF -DBUILD_CUBEB=OFF \
                    -DUSE_WXWIDGETS=OFF -DUSE_OPENGL=OFF -DUSE_VULKAN=ON \
@@ -96,8 +105,7 @@ jobs:
                    -DPCSX2_USE_PCH=OFF -DCLANG_ENABLE_PCH=OFF -DENABLE_PCH=OFF \
                    -DCMAKE_DISABLE_PRECOMPILED_HEADERS=ON
 
-          # 6. POST-CONFIGURE FIXES
-          # Remove architecture flags that cause iOS failures
+          # 6. STRIP INCOMPATIBLE FLAGS
           find . -name "flags.make" -exec sed -i '' 's/-x objective-c++/ /g' {} +
           find . -name "flags.make" -exec sed -i '' 's/-mfpmath=sse//g' {} +
           find . -name "flags.make" -exec sed -i '' 's/-msse[^ ]*//g' {} +
