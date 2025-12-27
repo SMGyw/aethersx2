@@ -44,20 +44,18 @@ jobs:
 
       - name: Build Core
         run: |
-          # 1. Workspace Clean Start
+          # 1. Environment Reset
           rm -rf build && mkdir build
           mkdir -p dummy_wx/wx
           export LC_CTYPE=C
           export LANG=C
           
-          # 2. Source Neutralization (Fixing 43%)
-          # We provide a clean C++ stub
+          # 2. Source Neutralization
           echo "int agl_stub_symbol = 0;" > common/GL/ContextAGL.cpp
           echo "#pragma once" > common/GL/ContextAGL.h
           echo "void cubeb_stub() {}" > 3rdparty/cubeb/src/cubeb_resampler.cpp
 
-          # 3. Smart Mock Bridge Header (Fixing Conflict Error)
-          # We undefine wxString before declaring our class to prevent the 'conflicts with type alias' error
+          # 3. Smart Mock Bridge Header
           cat <<EOF > dummy_wx/wx_bridge.h
           #pragma once
           #include <string>
@@ -99,7 +97,7 @@ jobs:
 
           cd build
           
-          # 4. Configure with specialized iOS Flags
+          # 4. Configure
           cmake .. -DCMAKE_BUILD_TYPE=Release \
                    -DUSE_CUBEB=OFF -DBUILD_CUBEB=OFF \
                    -DUSE_WXWIDGETS=OFF -DUSE_OPENGL=OFF \
@@ -108,12 +106,14 @@ jobs:
                    -DPCSX2_USE_PCH=OFF -DCLANG_ENABLE_PCH=OFF -DENABLE_PCH=OFF \
                    -DCMAKE_DISABLE_PRECOMPILED_HEADERS=ON
 
-          # 5. Surgical Patching (Bypassing Objective-C++ at 43%)
-          echo "Redirecting build system to use our C++ stub..."
+          # 5. THE LINKER FIX (Fixing 44% Archive Error)
+          # We must update the object list in build.make so 'ar' finds ContextAGL.cpp.o instead of .mm.o
+          echo "Updating object list for the archiver..."
           find . -name "build.make" -exec sed -i '' 's/ContextAGL.mm/ContextAGL.cpp/g' {} +
-          find . -name "flags.make" -exec sed -i '' 's/-x objective-c++/ /g' {} +
+          find . -name "link.txt" -exec sed -i '' 's/ContextAGL.mm/ContextAGL.cpp/g' {} +
           
-          # Clean PCH and SSE artifacts
+          # Remove macOS flags and PCH
+          find . -name "flags.make" -exec sed -i '' 's/-x objective-c++/ /g' {} +
           find . -name "flags.make" -exec sed -i '' 's/-include-pch [^ ]*//g' {} +
           find . -name "flags.make" -exec sed -i '' 's/-mfpmath=sse//g' {} +
           find . -name "build.make" -exec sed -i '' '/cmake_pch.hxx.pch/d' {} +
