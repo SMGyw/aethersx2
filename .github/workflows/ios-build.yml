@@ -44,7 +44,7 @@ jobs:
 
       - name: Build Core
         run: |
-          # 1. Environment Preparation
+          # 1. Environment Prep
           rm -rf build && mkdir build
           mkdir -p dummy_wx/wx
           export LC_CTYPE=C
@@ -53,8 +53,6 @@ jobs:
           # 2. Patch macOS/Graphics conflicts (Fixes 43%)
           echo "// Empty" > common/GL/ContextAGL.mm
           echo "// Empty" > common/GL/ContextAGL.h
-          echo "// Empty" > 3rdparty/cubeb/src/cubeb_resampler.cpp
-          echo "// Empty" > 3rdparty/cubeb/src/cubeb_audiounit.cpp
 
           # 3. Create Mock Bridge Header (Fixes 32%)
           cat <<EOF > dummy_wx/wx_bridge.h
@@ -85,25 +83,31 @@ jobs:
 
           cd build
           
-          # 4. Configure with Forced Preprocessor Macros (The 20% Solution)
-          # We inject -DHAVE_FDOPEN=0 and -Dfdopen=z_ios_fdopen directly into the compiler
+          # 4. Configure with absolute PCH disabling (The 31% Fix)
           cmake .. -DCMAKE_BUILD_TYPE=Release \
                    -DUSE_CUBEB=OFF -DBUILD_CUBEB=OFF \
                    -DUSE_WXWIDGETS=OFF -DUSE_OPENGL=OFF \
                    -DCMAKE_C_FLAGS="-DHAVE_FDOPEN=0 -Dfdopen=z_ios_fdopen" \
                    -DCMAKE_CXX_FLAGS="-DHAVE_FDOPEN=0 -Dfdopen=z_ios_fdopen" \
-                   -DPCSX2_USE_PCH=OFF -DCLANG_ENABLE_PCH=OFF
+                   -DPCSX2_USE_PCH=OFF \
+                   -DCLANG_ENABLE_PCH=OFF \
+                   -DENABLE_PCH=OFF \
+                   -DCMAKE_PCH_INSTANTIATE_TEMPLATES=OFF
 
-          # 5. Clean Build System (SSE/PCH Stripping)
+          # 5. THE NUCLEAR STRIP (Kill PCH references in generated files)
+          # This removes the -include-pch flag that causes the 31% error
+          echo "Force-stripping PCH references from makefiles..."
           find . -name "*.make" -exec sed -i '' 's/-include-pch [^ ]*//g' {} +
           find . -name "flags.make" -exec sed -i '' 's/-include-pch [^ ]*//g' {} +
-          find . -name "*.make" -exec sed -i '' 's/-mfpmath=sse//g' {} +
+          find . -name "build.make" -exec sed -i '' 's/cmake_pch.hxx.pch//g' {} +
+          
+          # Clean Intel-specific flags
           find . -name "flags.make" -exec sed -i '' 's/-mfpmath=sse//g' {} +
           
-          # Force remove ContextAGL to prevent 43% failure
+          # Skip macOS files (Prevent 43% error)
           find . -name "build.make" -exec sed -i '' 's/ContextAGL.mm.o//g' {} +
 
-          # 6. Bridge Injection for common module
+          # 6. Bridge Injection
           if [ -d "common/CMakeFiles/common.dir" ]; then
             sed -i '' "s|CXX_FLAGS = |CXX_FLAGS = -include ${GITHUB_WORKSPACE}/dummy_wx/wx_bridge.h |" common/CMakeFiles/common.dir/flags.make
           fi
