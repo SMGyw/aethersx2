@@ -7,7 +7,7 @@ endif(NOT TOP_CMAKE_WAS_SOURCED)
 
 add_library(common)
 
-# x86emitter sources
+# x86emitter sources (platform-independent)
 target_sources(common PRIVATE
 	AlignedMalloc.cpp
 	VirtualMemory.cpp
@@ -54,15 +54,6 @@ target_sources(common PRIVATE
 	emitter/WinCpuDetect.cpp
 	emitter/x86emitter.cpp
 	x86/MemcpyFast.cpp
-	Darwin/DarwinThreads.cpp
-	Darwin/DarwinMisc.cpp
-	Darwin/DarwinSemaphore.cpp
-	Linux/LnxHostSys.cpp
-	Linux/LnxThreads.cpp
-	Linux/LnxMisc.cpp
-	Windows/WinThreads.cpp
-	Windows/WinHostSys.cpp
-	Windows/WinMisc.cpp
 	)
 
 # x86emitter headers
@@ -148,6 +139,8 @@ if(WIN32)
 	)
 	target_link_libraries(common PUBLIC pthreads4w Winmm.lib opengl32.lib)
 elseif(APPLE)
+	# Ensure Objective-C++ is enabled for .mm files on Apple platforms
+	enable_language(OBJCXX OPTIONAL)
 	target_sources(common PRIVATE
 		GL/ContextAGL.mm
 		GL/ContextAGL.h
