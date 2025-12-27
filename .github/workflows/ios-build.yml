@@ -50,16 +50,15 @@ jobs:
           export LC_CTYPE=C
           export LANG=C
           
-          # 2. THE FINAL ZLIB OVERRIDE (Breaking the 20% wall)
-          # We manually remove the conflicting fdopen lines from zutil.c and zutil.h
-          echo "Hard-patching zlib source to remove fdopen conflicts..."
-          # Remove any line containing 'fdopen' in zutil.c/zutil.h
-          sed -i '' '/fdopen/d' 3rdparty/libchdr/libchdr/deps/zlib-1.2.11/zutil.c
-          sed -i '' '/fdopen/d' 3rdparty/libchdr/libchdr/deps/zlib-1.2.11/zutil.h
-          # Also patch zconf.h just in case
-          sed -i '' '/fdopen/d' 3rdparty/libchdr/libchdr/deps/zlib-1.2.11/zconf.h
+          # 2. PRO-LEVEL ZLIB FIX (Fixing 17% and 20%)
+          # Instead of deleting lines, we inject an override at the very top of the files
+          echo "Injecting iOS compatibility macros into zlib..."
+          find 3rdparty/libchdr/libchdr/deps/zlib-1.2.11 -name "*.c" -exec sed -i '' '1i\
+          #define HAVE_FDOPEN 0\
+          #define NO_FDOPEN 1\
+          ' {} +
 
-          # 3. Disable macOS Graphics Frameworks (Fixing the 43% hang)
+          # 3. Disable macOS Graphics Frameworks (Fixing 43%)
           echo "// Empty" > common/GL/ContextAGL.mm
           echo "// Empty" > common/GL/ContextAGL.h
 
@@ -92,14 +91,14 @@ jobs:
 
           cd build
           
-          # 5. Configure CMake with strict flags
+          # 5. Configure CMake with iOS specific stdio flags
           cmake .. -DCMAKE_BUILD_TYPE=Release \
                    -DUSE_CUBEB=OFF -DBUILD_CUBEB=OFF \
                    -DUSE_WXWIDGETS=OFF -DUSE_OPENGL=OFF \
                    -DHAVE_FDOPEN=0 -DNO_FDOPEN=1 \
                    -DPCSX2_USE_PCH=OFF -DCLANG_ENABLE_PCH=OFF
 
-          # 6. Post-Configure System Cleaning
+          # 6. Post-Configure Cleanup (PCH & SSE)
           find . -name "*.make" -exec sed -i '' 's/-include-pch [^ ]*//g' {} +
           find . -name "flags.make" -exec sed -i '' 's/-include-pch [^ ]*//g' {} +
           find . -name "*.make" -exec sed -i '' 's/-mfpmath=sse//g' {} +
