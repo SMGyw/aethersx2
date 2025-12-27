@@ -46,47 +46,64 @@ jobs:
         run: |
           # 1. Clean Environment
           rm -rf build && mkdir build
+          mkdir -p dummy_wx/wx
           export LC_CTYPE=C
           export LANG=C
           
-          # 2. THE GHOST FILE STRATEGY (Fixing 31% Cubeb Error)
-          # We empty the problematic cubeb files so they compile as "nothing"
-          echo "Neutralizing cubeb source files..."
-          echo "// Empty file to bypass build error" > 3rdparty/cubeb/src/cubeb_resampler.cpp
-          echo "// Empty file to bypass build error" > 3rdparty/cubeb/src/cubeb_audiounit.cpp
+          # 2. NEUTRALIZE CUBEB (Maintaining the 31% fix)
+          echo "// Empty" > 3rdparty/cubeb/src/cubeb_resampler.cpp
+          echo "// Empty" > 3rdparty/cubeb/src/cubeb_audiounit.cpp
           
-          # 3. TARGETED SOURCE SURGERY (Injecting into Core Modules)
-          echo "Injecting macros into core folders..."
+          # 3. CREATE THE STABLE BRIDGE HEADER
+          # We use a more compatible approach for wxString to avoid '5 errors' conflict
+          cat <<EOF > dummy_wx/wx_bridge.h
+          #pragma once
+          #include <string>
+          #include <iostream>
+          #include <vector>
+          #include <algorithm>
+          #include <stdarg.h>
+
+          typedef std::string wxString;
+          
+          #define wxT(x) x
+          #define _(x) x
+          #define wxEmptyString std::string("")
+          #define wxLogMessage(...) printf(__VA_ARGS__)
+          #define wxLogStatus(...) printf(__VA_ARGS__)
+          #define wxLogWarning(...) printf(__VA_ARGS__)
+          #define wxLogError(...) printf(__VA_ARGS__)
+          #define wxLogDebug(...) printf(__VA_ARGS__)
+          #define wxPrintf(...) printf(__VA_ARGS__)
+          #define wxUnusedVar(x) (void)x
+          
+          // Basic wxString method mocks if needed by Console.cpp
+          inline std::string wxStringFormat(const char* fmt, ...) {
+              char buf[1024]; va_list args; va_start(args, fmt);
+              vsnprintf(buf, sizeof(buf), fmt, args); va_end(args);
+              return std::string(buf);
+          }
+          EOF
+
+          # 4. TARGETED INJECTION (Avoiding 33% conflict)
+          # We use a cleaner injection that won't conflict with system headers
+          echo "Injecting stable bridge into core folders..."
           for dir in "common" "core" "pcsx2" "aethersx2"; do
             if [ -d "$dir" ]; then
               find "$dir" -name "*.cpp" -exec sed -i '' '1i\
-          #include <string>\
-          #include <stdarg.h>\
-          #include <algorithm>\
-          #ifndef WX_MOCK_H\
-          #define WX_MOCK_H\
-          using wxString = std::string;\
-          #define wxT(x) x\
-          #define _(x) x\
-          #define wxEmptyString std::string("")\
-          #define wxLogMessage(...) printf(__VA_ARGS__)\
-          #define wxLogStatus(...) printf(__VA_ARGS__)\
-          #define wxLogWarning(...) printf(__VA_ARGS__)\
-          #define wxLogError(...) printf(__VA_ARGS__)\
-          #define wxLogDebug(...) printf(__VA_ARGS__)\
-          #define wxPrintf(...) printf(__VA_ARGS__)\
-          #define wxUnusedVar(x) (void)x\
-          #endif
+          #include "'${GITHUB_WORKSPACE}'/dummy_wx/wx_bridge.h"
           ' {} +
             fi
           done
 
-          # 4. Global Source Clean (Removing Mac-only files)
-          find . -name "CMakeLists.txt" -exec sed -i '' '/ContextAGL.mm/d' {} + || true
+          # 5. Fix VirtualMemory for iOS
+          if [ -f "common/VirtualMemory.cpp" ]; then
+            sed -i '' 's/#ifdef __APPLE__/#ifdef TARGET_OS_IPHONE_STUB/g' common/VirtualMemory.cpp
+          fi
 
           cd build
           
-          # 5. Configure with Aggressive Flags
+          # 6. Configure with Clean Environment
           cmake .. -DCMAKE_BUILD_TYPE=Release \
                    -DUSE_CUBEB=OFF -DBUILD_CUBEB=OFF \
                    -DUSE_WXWIDGETS=OFF -DUSE_OPENGL=OFF -DUSE_VULKAN=ON \
@@ -95,11 +112,11 @@ jobs:
                    -DPCSX2_USE_PCH=OFF -DCLANG_ENABLE_PCH=OFF -DENABLE_PCH=OFF \
                    -DCMAKE_DISABLE_PRECOMPILED_HEADERS=ON
 
-          # 6. Global Build System Cleanup (Removing SSE and PCH)
+          # 7. Global Build System Cleanup
           find . -name "flags.make" -exec sed -i '' 's/-x objective-c++/ /g' {} +
           find . -name "flags.make" -exec sed -i '' 's/-include-pch [^ ]*//g' {} +
           find . -name "flags.make" -exec sed -i '' 's/-mfpmath=sse//g' {} +
           find . -name "flags.make" -exec sed -i '' 's/-msse[^ ]*//g' {} +
           
-          # 7. Start Build
+          # 8. Start Build
           cmake --build . --config Release -- -j $(sysctl -n hw.logicalcpu)
