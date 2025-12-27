@@ -44,17 +44,13 @@ jobs:
 
       - name: Build Core
         run: |
-          # 1. Fresh Workspace
+          # 1. Workspace Cleanup & Preparation
           rm -rf build && mkdir build
           mkdir -p dummy_wx/wx
           export LC_CTYPE=C
           export LANG=C
           
-          # 2. SOURCE SURGERY
-          sed -i '' '/ContextAGL.mm/d' common/CMakeLists.txt || true
-          echo "void stub_audio() {}" > 3rdparty/cubeb/src/cubeb_resampler.cpp
-
-          # 3. Create the Comprehensive Mock Bridge Header
+          # 2. CREATE THE ULTIMATE BRIDGE HEADER
           cat <<EOF > dummy_wx/wx_bridge.h
           #pragma once
           #include <string>
@@ -96,15 +92,20 @@ jobs:
           #define wxUnusedVar(x) (void)x
           EOF
 
-          # 4. CREATE FAKE wxWidgets DIRECTORY STRUCTURE (The 33% Final Fix)
-          # This forces files like Console.cpp to find the headers they are looking for
-          for header in "string.h" "log.h" "setup.h" "wx.h" "intl.h" "crt.h"; do
-            echo "#include \"../wx_bridge.h\"" > dummy_wx/wx/$header
-          done
+          # 3. DIRECT SOURCE INJECTION (The 33% Solution)
+          # We physically add the include to every .cpp file in common
+          echo "Injecting bridge header into source files..."
+          find common -name "*.cpp" -exec sed -i '' '1i\
+          #include "'${GITHUB_WORKSPACE}'/dummy_wx/wx_bridge.h"
+          ' {} +
+
+          # 4. Neutralize macOS specific entries in CMake
+          sed -i '' '/ContextAGL.mm/d' common/CMakeLists.txt || true
+          echo "void stub_audio() {}" > 3rdparty/cubeb/src/cubeb_resampler.cpp
 
           cd build
           
-          # 5. Configure with dummy_wx in Include Path
+          # 5. Configure with Forced Include Paths
           cmake .. -DCMAKE_BUILD_TYPE=Release \
                    -DUSE_CUBEB=OFF -DBUILD_CUBEB=OFF \
                    -DUSE_WXWIDGETS=OFF -DUSE_OPENGL=OFF -DUSE_VULKAN=ON \
@@ -113,17 +114,13 @@ jobs:
                    -DPCSX2_USE_PCH=OFF -DCLANG_ENABLE_PCH=OFF -DENABLE_PCH=OFF \
                    -DCMAKE_DISABLE_PRECOMPILED_HEADERS=ON
 
-          # 6. Build System Patching & Injection
+          # 6. Global Build System Cleanup
           find . -name "flags.make" -exec sed -i '' 's/-x objective-c++/ /g' {} +
           find . -name "flags.make" -exec sed -i '' 's/-include-pch [^ ]*//g' {} +
           find . -name "flags.make" -exec sed -i '' 's/-mfpmath=sse//g' {} +
           
-          # Force injection of our bridge into flags.make for every core module
-          for mod in "common" "core" "pcsx2"; do
-            if [ -d "$mod/CMakeFiles" ]; then
-              find "$mod/CMakeFiles" -name "flags.make" -exec sed -i '' "s|CXX_FLAGS = |CXX_FLAGS = -I${GITHUB_WORKSPACE}/dummy_wx -include ${GITHUB_WORKSPACE}/dummy_wx/wx_bridge.h |" {} +
-            fi
-          done
+          # Inject the include path into every single flags.make for absolute certainty
+          find . -name "flags.make" -exec sed -i '' "s|CXX_FLAGS = |CXX_FLAGS = -I${GITHUB_WORKSPACE}/dummy_wx |" {} +
 
           # 7. Start Build
           cmake --build . --config Release -- -j $(sysctl -n hw.logicalcpu)
