@@ -44,25 +44,25 @@ jobs:
 
       - name: Build Core
         run: |
-          # 1. Environment Refresh
+          # 1. Environment Prep
           rm -rf build && mkdir build
           mkdir -p dummy_wx/wx
           export LC_CTYPE=C
           export LANG=C
           
-          # 2. SURGICAL SOURCE PATCHING (The 44% Fix)
-          # We revert the deletion of ContextAGL from CMake but we empty its content
-          echo "Neutralizing macOS graphics files safely..."
-          echo "int agl_stub_symbol = 0;" > common/GL/ContextAGL.mm
+          # 2. Source Neutralization (Fixing 43% and 31%)
+          # We force these files to be standard C++ and empty to satisfy the compiler
+          echo "int agl_stub = 0;" > common/GL/ContextAGL.mm
           echo "#pragma once" > common/GL/ContextAGL.h
           echo "void cubeb_stub() {}" > 3rdparty/cubeb/src/cubeb_resampler.cpp
 
-          # 3. Create Refined Mock Bridge Header
+          # 3. Enhanced Mock Bridge Header
           cat <<EOF > dummy_wx/wx_bridge.h
           #pragma once
           #include <string>
           #include <stdarg.h>
           #include <algorithm>
+          #include <iostream>
           class wxString : public std::string {
           public:
               using std::string::string;
@@ -88,7 +88,8 @@ jobs:
 
           cd build
           
-          # 4. Configure with Absolute PCH Disable
+          # 4. Configure with Forced PCH Disable
+          # We use CMAKE_DISABLE_PRECOMPILED_HEADERS which is the ultimate off-switch
           cmake .. -DCMAKE_BUILD_TYPE=Release \
                    -DUSE_CUBEB=OFF -DBUILD_CUBEB=OFF \
                    -DUSE_WXWIDGETS=OFF -DUSE_OPENGL=OFF \
@@ -97,19 +98,19 @@ jobs:
                    -DPCSX2_USE_PCH=OFF -DCLANG_ENABLE_PCH=OFF -DENABLE_PCH=OFF \
                    -DCMAKE_DISABLE_PRECOMPILED_HEADERS=ON
 
-          # 5. Build System Post-Patching (The Linker Fix)
-          # We force the compiler to treat .mm files as standard C++ to avoid macOS Frameworks
-          echo "Patching generated flags to treat Objective-C++ as pure C++..."
+          # 5. Build System Surgical Strike
+          # Strip objective-c++ flags and PCH calls from EVERY generated file
+          echo "Stripping incompatible flags from makefiles..."
           find . -name "flags.make" -exec sed -i '' 's/-x objective-c++/ /g' {} +
           find . -name "flags.make" -exec sed -i '' 's/-include-pch [^ ]*//g' {} +
           find . -name "flags.make" -exec sed -i '' 's/-mfpmath=sse//g' {} +
+          
+          # Delete the PCH target rules entirely to prevent Error 1 at 31%
+          find . -name "build.make" -exec sed -i '' '/cmake_pch.hxx.pch/d' {} +
 
-          # 6. Target Injection for Core Modules
-          for mod in "common" "core" "pcsx2"; do
-            if [ -d "$mod/CMakeFiles" ]; then
-              find "$mod/CMakeFiles" -name "flags.make" -exec sed -i '' "s|CXX_FLAGS = |CXX_FLAGS = -include ${GITHUB_WORKSPACE}/dummy_wx/wx_bridge.h |" {} +
-            fi
-          done
+          # 6. Global Bridge Injection
+          # This ensures that even late-compiled files find our wxWidgets mocks
+          find . -name "flags.make" -exec sed -i '' "s|CXX_FLAGS = |CXX_FLAGS = -include ${GITHUB_WORKSPACE}/dummy_wx/wx_bridge.h |" {} +
 
           # 7. Start Build
           cmake --build . --config Release -- -j $(sysctl -n hw.logicalcpu)
