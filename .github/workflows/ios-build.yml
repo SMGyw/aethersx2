@@ -44,23 +44,21 @@ jobs:
 
       - name: Build Core
         run: |
-          # 1. Fresh Workspace and Environment
+          # 1. Environment Refresh
           rm -rf build && mkdir build
           mkdir -p dummy_wx/wx
           export LC_CTYPE=C
           export LANG=C
           
-          # 2. CAREFUL SOURCE PATCHING
-          # We disable PCH only where it exists without breaking the file structure
-          echo "Disabling PCH safely..."
-          find . -name "CMakeLists.txt" -exec sed -i '' 's/target_precompiled_headers/# target_precompiled_headers/g' {} +
-          
-          # 3. Neutralize macOS specific files (Fixing 43% error)
-          sed -i '' '/ContextAGL.mm/d' common/CMakeLists.txt || true
-          echo "int dummy_agl = 0;" > common/GL/ContextAGL.mm
+          # 2. SOURCE-LEVEL NEUTRALIZATION (Fixing 31% Cubeb Error)
+          # We overwrite the problematic source files before CMake even starts
+          echo "Neutralizing cubeb and macOS sources..."
+          echo "void cubeb_resampler_dummy() {}" > 3rdparty/cubeb/src/cubeb_resampler.cpp
+          echo "void cubeb_audiounit_dummy() {}" > 3rdparty/cubeb/src/cubeb_audiounit.cpp
+          echo "int agl_dummy = 0;" > common/GL/ContextAGL.mm
           echo "#pragma once" > common/GL/ContextAGL.h
 
-          # 4. Create Mock Bridge Header
+          # 3. Refined Mock Bridge Header
           cat <<EOF > dummy_wx/wx_bridge.h
           #pragma once
           #include <string>
@@ -91,8 +89,7 @@ jobs:
 
           cd build
           
-          # 5. Configure with Correct Flags (Removed -fno-pch)
-          # We use -Dfdopen=z_ios_fdopen which worked to get us to 44%
+          # 4. Configure with Strict iOS Environment
           cmake .. -DCMAKE_BUILD_TYPE=Release \
                    -DUSE_CUBEB=OFF -DBUILD_CUBEB=OFF \
                    -DUSE_WXWIDGETS=OFF -DUSE_OPENGL=OFF \
@@ -101,16 +98,17 @@ jobs:
                    -DPCSX2_USE_PCH=OFF -DCLANG_ENABLE_PCH=OFF -DENABLE_PCH=OFF \
                    -DCMAKE_DISABLE_PRECOMPILED_HEADERS=ON
 
-          # 6. Targeted Bridge Injection
+          # 5. Build System Patching (Surgical Strike)
+          # Clean PCH and SSE artifacts that CMake might have regenerated
+          find . -name "flags.make" -exec sed -i '' 's/-include-pch [^ ]*//g' {} +
+          find . -name "flags.make" -exec sed -i '' 's/-mfpmath=sse//g' {} +
+          
+          # Inject bridge into core modules
           for mod in "common" "core" "pcsx2"; do
             if [ -d "$mod/CMakeFiles" ]; then
               find "$mod/CMakeFiles" -name "flags.make" -exec sed -i '' "s|CXX_FLAGS = |CXX_FLAGS = -include ${GITHUB_WORKSPACE}/dummy_wx/wx_bridge.h |" {} +
             fi
           done
 
-          # 7. Post-Configure Cleanup (Fixing 32% and SSE)
-          find . -name "flags.make" -exec sed -i '' 's/-include-pch [^ ]*//g' {} +
-          find . -name "flags.make" -exec sed -i '' 's/-mfpmath=sse//g' {} +
-
-          # 8. Start Build
+          # 6. Start Build
           cmake --build . --config Release -- -j $(sysctl -n hw.logicalcpu)
