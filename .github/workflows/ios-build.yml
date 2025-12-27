@@ -50,22 +50,16 @@ jobs:
           export LC_CTYPE=C
           export LANG=C
           
-          # 2. NEUTRALIZE CUBEB (Maintaining the 31% fix)
-          echo "// Empty" > 3rdparty/cubeb/src/cubeb_resampler.cpp
-          echo "// Empty" > 3rdparty/cubeb/src/cubeb_audiounit.cpp
-          
-          # 3. CREATE THE STABLE BRIDGE HEADER
-          # We use a more compatible approach for wxString to avoid '5 errors' conflict
+          # 2. CREATE THE STABLE BRIDGE HEADER
           cat <<EOF > dummy_wx/wx_bridge.h
           #pragma once
           #include <string>
-          #include <iostream>
           #include <vector>
           #include <algorithm>
           #include <stdarg.h>
+          #include <iostream>
 
           typedef std::string wxString;
-          
           #define wxT(x) x
           #define _(x) x
           #define wxEmptyString std::string("")
@@ -73,50 +67,57 @@ jobs:
           #define wxLogStatus(...) printf(__VA_ARGS__)
           #define wxLogWarning(...) printf(__VA_ARGS__)
           #define wxLogError(...) printf(__VA_ARGS__)
-          #define wxLogDebug(...) printf(__VA_ARGS__)
           #define wxPrintf(...) printf(__VA_ARGS__)
           #define wxUnusedVar(x) (void)x
           
-          // Basic wxString method mocks if needed by Console.cpp
-          inline std::string wxStringFormat(const char* fmt, ...) {
-              char buf[1024]; va_list args; va_start(args, fmt);
-              vsnprintf(buf, sizeof(buf), fmt, args); va_end(args);
-              return std::string(buf);
-          }
+          // Mocking tokenization types if needed
+          enum wxStringTokenizeMode { wxTOKEN_DEFAULT };
           EOF
 
-          # 4. TARGETED INJECTION (Avoiding 33% conflict)
-          # We use a cleaner injection that won't conflict with system headers
-          echo "Injecting stable bridge into core folders..."
+          # 3. CREATE MOCK WX HEADERS (Fixing 'wx/tokenzr.h' not found)
+          # We create empty files for all common wxWidgets headers to satisfy the compiler
+          for h in tokenzr.h string.h log.h setup.h intl.h crt.h msgdlg.h filefn.h; do
+            echo "#include \"../wx_bridge.h\"" > dummy_wx/wx/$h
+          done
+
+          # 4. NEUTRALIZE SOURCE (Maintaining previous fixes)
+          echo "// Empty" > 3rdparty/cubeb/src/cubeb_resampler.cpp
+          echo "// Empty" > 3rdparty/cubeb/src/cubeb_audiounit.cpp
+          
+          # 5. TARGETED INJECTION
+          echo "Injecting bridge into core folders..."
           for dir in "common" "core" "pcsx2" "aethersx2"; do
             if [ -d "$dir" ]; then
               find "$dir" -name "*.cpp" -exec sed -i '' '1i\
           #include "'${GITHUB_WORKSPACE}'/dummy_wx/wx_bridge.h"
           ' {} +
+              # Also inject into .mm files to fix ContextAGL
+              find "$dir" -name "*.mm" -exec sed -i '' '1i\
+          #include "'${GITHUB_WORKSPACE}'/dummy_wx/wx_bridge.h"
+          ' {} +
             fi
           done
 
-          # 5. Fix VirtualMemory for iOS
+          # 6. PATCH VirtualMemory for iOS
           if [ -f "common/VirtualMemory.cpp" ]; then
             sed -i '' 's/#ifdef __APPLE__/#ifdef TARGET_OS_IPHONE_STUB/g' common/VirtualMemory.cpp
           fi
 
           cd build
           
-          # 6. Configure with Clean Environment
+          # 7. Configure with Include Path pointing to our dummy headers
           cmake .. -DCMAKE_BUILD_TYPE=Release \
                    -DUSE_CUBEB=OFF -DBUILD_CUBEB=OFF \
                    -DUSE_WXWIDGETS=OFF -DUSE_OPENGL=OFF -DUSE_VULKAN=ON \
-                   -DCMAKE_C_FLAGS="-DHAVE_FDOPEN=0 -Dfdopen=z_ios_fdopen" \
-                   -DCMAKE_CXX_FLAGS="-DHAVE_FDOPEN=0 -Dfdopen=z_ios_fdopen" \
+                   -DCMAKE_CXX_FLAGS="-I${GITHUB_WORKSPACE}/dummy_wx -DHAVE_FDOPEN=0 -Dfdopen=z_ios_fdopen" \
+                   -DCMAKE_C_FLAGS="-I${GITHUB_WORKSPACE}/dummy_wx -DHAVE_FDOPEN=0 -Dfdopen=z_ios_fdopen" \
                    -DPCSX2_USE_PCH=OFF -DCLANG_ENABLE_PCH=OFF -DENABLE_PCH=OFF \
                    -DCMAKE_DISABLE_PRECOMPILED_HEADERS=ON
 
-          # 7. Global Build System Cleanup
+          # 8. GLOBAL CLEANUP
           find . -name "flags.make" -exec sed -i '' 's/-x objective-c++/ /g' {} +
           find . -name "flags.make" -exec sed -i '' 's/-include-pch [^ ]*//g' {} +
           find . -name "flags.make" -exec sed -i '' 's/-mfpmath=sse//g' {} +
-          find . -name "flags.make" -exec sed -i '' 's/-msse[^ ]*//g' {} +
           
-          # 8. Start Build
+          # 9. Start Build
           cmake --build . --config Release -- -j $(sysctl -n hw.logicalcpu)
