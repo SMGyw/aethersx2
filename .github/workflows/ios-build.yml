@@ -44,7 +44,7 @@ jobs:
 
       - name: Build Core
         run: |
-          # 1. HARD RESET
+          # 1. HARD RESET & CLEAN
           git checkout .
           git clean -fd
           rm -rf build && mkdir build
@@ -52,13 +52,12 @@ jobs:
           export LC_CTYPE=C
           export LANG=C
           
-          # 2. NEUTRALIZATION
+          # 2. NEUTRALIZE MAC FILES
           echo "// Empty" > common/GL/ContextAGL.mm
           echo "// Empty" > 3rdparty/cubeb/src/cubeb_resampler.cpp
           echo "// Empty" > 3rdparty/cubeb/src/cubeb_audiounit.cpp
 
-          # 3. THE REFINED BRIDGE (Fixing the "typedef" error)
-          # We only define things that ARE NOT already defined by the compiler command line
+          # 3. THE REFINED BRIDGE
           cat <<EOF > dummy_wx/wx_bridge.h
           #pragma once
           #ifdef __cplusplus
@@ -67,17 +66,12 @@ jobs:
           #include <algorithm>
           #include <stdarg.h>
           #include <iostream>
-
-          // System already defines wxString as std::string via -D, 
-          // so we don't use typedef here to avoid conflicts.
-          
           #ifndef wxT
           #define wxT(x) x
           #endif
           #ifndef _
           #define _(x) x
           #endif
-          
           #define wxEmptyString std::string("")
           #define wxLogMessage(...) printf(__VA_ARGS__)
           #define wxLogStatus(...) printf(__VA_ARGS__)
@@ -96,7 +90,6 @@ jobs:
           cd build
           
           # 5. CONFIGURE
-          # We keep the -include bridge but only for C++
           cmake .. -DCMAKE_BUILD_TYPE=Release \
                    -DUSE_CUBEB=OFF -DBUILD_CUBEB=OFF \
                    -DUSE_WXWIDGETS=OFF -DUSE_OPENGL=OFF -DUSE_VULKAN=ON \
@@ -105,10 +98,15 @@ jobs:
                    -DPCSX2_USE_PCH=OFF -DCLANG_ENABLE_PCH=OFF -DENABLE_PCH=OFF \
                    -DCMAKE_DISABLE_PRECOMPILED_HEADERS=ON
 
-          # 6. STRIP INCOMPATIBLE FLAGS
+          # 6. THE 20% NUCLEAR FIX (Cleaning C flags from C++ macros)
+          # This removes the problematic -DwxString=std::string from C files only
+          echo "Cleaning C compiler flags..."
+          find . -name "flags.make" -exec sed -i '' 's/-DwxString=std::string//g' {} +
+          
+          # 7. GLOBAL PATCHES
           find . -name "flags.make" -exec sed -i '' 's/-x objective-c++/ /g' {} +
           find . -name "flags.make" -exec sed -i '' 's/-mfpmath=sse//g' {} +
           find . -name "flags.make" -exec sed -i '' 's/-msse[^ ]*//g' {} +
           
-          # 7. START BUILD
+          # 8. START BUILD
           cmake --build . --config Release -- -j $(sysctl -n hw.logicalcpu)
