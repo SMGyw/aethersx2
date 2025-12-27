@@ -49,10 +49,10 @@ jobs:
           export LC_CTYPE=C
           export LANG=C
           
-          # 2. SOURCE LEVEL SURGERY (The "No-Bridge" Strategy)
-          # Instead of a file, we inject the macros directly into every .cpp file
-          echo "Injecting raw macros into source files..."
-          find common core -name "*.cpp" -exec sed -i '' '1i\
+          # 2. UNIVERSAL SOURCE SURGERY
+          # We search for ALL .cpp files in the repository to avoid "No such file" errors
+          echo "Injecting raw macros into all source files..."
+          find . -name "*.cpp" -not -path "./build/*" -exec sed -i '' '1i\
           #include <string>\
           #include <stdarg.h>\
           #include <algorithm>\
@@ -72,13 +72,13 @@ jobs:
           #endif
           ' {} +
 
-          # 3. FIX VirtualMemory.cpp (iOS doesn't support Mach VM the same way as macOS)
-          # We force it to use standard posix_memalign if it's struggling
-          sed -i '' 's/#ifdef __APPLE__/#ifdef TARGET_OS_IPHONE_STUB/g' common/VirtualMemory.cpp
+          # 3. FIX VirtualMemory.cpp (Safety check if file exists)
+          if [ -f "common/VirtualMemory.cpp" ]; then
+            sed -i '' 's/#ifdef __APPLE__/#ifdef TARGET_OS_IPHONE_STUB/g' common/VirtualMemory.cpp
+          fi
 
           # 4. Remove macOS dependencies from CMake
-          sed -i '' '/ContextAGL.mm/d' common/CMakeLists.txt || true
-          echo "void stub_audio() {}" > 3rdparty/cubeb/src/cubeb_resampler.cpp
+          find . -name "CMakeLists.txt" -exec sed -i '' '/ContextAGL.mm/d' {} + || true
 
           cd build
           
@@ -95,7 +95,6 @@ jobs:
           find . -name "flags.make" -exec sed -i '' 's/-x objective-c++/ /g' {} +
           find . -name "flags.make" -exec sed -i '' 's/-include-pch [^ ]*//g' {} +
           find . -name "flags.make" -exec sed -i '' 's/-mfpmath=sse//g' {} +
-          find . -name "build.make" -exec sed -i '' '/cmake_pch.hxx.pch/d' {} +
-
+          
           # 7. Start Build
           cmake --build . --config Release -- -j $(sysctl -n hw.logicalcpu)
