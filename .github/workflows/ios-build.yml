@@ -44,20 +44,21 @@ jobs:
 
       - name: Build Core
         run: |
-          # 1. Workspace Cleanup
+          # 1. Fresh Start
           rm -rf build && mkdir build
           mkdir -p dummy_wx/wx
           export LC_CTYPE=C
           export LANG=C
           
-          # 2. SOURCE NEUTRALIZATION
+          # 2. NEUTRALIZE INCOMPATIBLE SOURCE
           echo "// Empty" > common/GL/ContextAGL.mm
           echo "// Empty" > 3rdparty/cubeb/src/cubeb_resampler.cpp
           echo "// Empty" > 3rdparty/cubeb/src/cubeb_audiounit.cpp
 
-          # 3. ROBUST BRIDGE HEADER
+          # 3. THE SAFE BRIDGE HEADER
           cat <<EOF > dummy_wx/wx_bridge.h
           #pragma once
+          #ifdef __cplusplus
           #include <string>
           #include <vector>
           #include <algorithm>
@@ -74,22 +75,21 @@ jobs:
           #define wxLogError(...) printf(__VA_ARGS__)
           #define wxPrintf(...) printf(__VA_ARGS__)
           #define wxUnusedVar(x) (void)x
+          #endif
           EOF
 
-          # 4. CREATE MOCK WX STRUCTURE
+          # 4. MOCK WX HEADERS
           for h in tokenzr.h string.h log.h setup.h intl.h crt.h msgdlg.h filefn.h config.h; do
             echo "#include \"../wx_bridge.h\"" > dummy_wx/wx/$h
           done
 
-          # 5. SMART SELECTIVE INJECTION (Fixing the 20% zlib error)
-          # We ONLY inject into common, core, and pcsx2. We SKIP 3rdparty.
-          echo "Injecting bridge into core folders (skipping 3rdparty)..."
+          # 5. SELECTIVE INJECTION (The 20% Fix)
+          # We only inject into specific directories and ONLY into .cpp/.mm files
+          echo "Injecting bridge into core application files..."
           for dir in "common" "core" "pcsx2" "aethersx2"; do
             if [ -d "$dir" ]; then
-              find "$dir" -name "*.cpp" -exec sed -i '' '1i\
-          #include "'${GITHUB_WORKSPACE}'/dummy_wx/wx_bridge.h"
-          ' {} +
-              find "$dir" -name "*.mm" -exec sed -i '' '1i\
+              # Only target C++ files to keep C libraries like zlib clean
+              find "$dir" \( -name "*.cpp" -o -name "*.mm" \) -exec sed -i '' '1i\
           #include "'${GITHUB_WORKSPACE}'/dummy_wx/wx_bridge.h"
           ' {} +
             fi
@@ -106,7 +106,7 @@ jobs:
                    -DPCSX2_USE_PCH=OFF -DCLANG_ENABLE_PCH=OFF -DENABLE_PCH=OFF \
                    -DCMAKE_DISABLE_PRECOMPILED_HEADERS=ON
 
-          # 7. BUILD SYSTEM PATCHING
+          # 7. STRIP INCOMPATIBLE FLAGS
           find . -name "flags.make" -exec sed -i '' 's/-x objective-c++/ /g' {} +
           find . -name "flags.make" -exec sed -i '' 's/-include-pch [^ ]*//g' {} +
           find . -name "flags.make" -exec sed -i '' 's/-mfpmath=sse//g' {} +
