@@ -49,33 +49,35 @@ jobs:
           git clean -fd
           rm -rf build && mkdir build
           mkdir -p dummy_wx/wx
-          export LC_CTYPE=C
-          export LANG=C
           
-          # 2. THE ZLIB BYPASS (Keeping the fix that worked)
+          # 2. FIX ZLIB (Worked before)
           if [ -d "3rdparty/libchdr/libchdr/deps/zlib-1.2.11" ]; then
             echo "cmake_minimum_required(VERSION 3.10)" > 3rdparty/libchdr/libchdr/deps/zlib-1.2.11/CMakeLists.txt
             echo "project(zlib_dummy)" >> 3rdparty/libchdr/libchdr/deps/zlib-1.2.11/CMakeLists.txt
             echo "add_library(zlib INTERFACE)" >> 3rdparty/libchdr/libchdr/deps/zlib-1.2.11/CMakeLists.txt
           fi
 
-          # 3. NEUTRALIZATION
+          # 3. CLEAN DUMMY FILES
           echo "// Empty" > common/GL/ContextAGL.mm
           echo "// Empty" > 3rdparty/cubeb/src/cubeb_resampler.cpp
           echo "// Empty" > 3rdparty/cubeb/src/cubeb_audiounit.cpp
 
-          # 4. SUPER BRIDGE HEADER (Fixing 31% Errors)
+          # 4. REFINED BRIDGE (No more typedef conflicts)
           cat <<EOF > dummy_wx/wx_bridge.h
           #pragma once
+          #ifdef __cplusplus
           #include <string>
           #include <vector>
-          #include <iostream>
-
-          // Force wxString to be exactly std::string to avoid redefinition errors
-          #ifndef WX_BRIDGE_H
-          #define WX_BRIDGE_H
-          
-          typedef std::string wxString;
+          // Only define if not already defined by CMake flags
+          #ifndef WX_DEFINED
+          #define WX_DEFINED
+          class wxString : public std::string {
+          public:
+              wxString() : std::string("") {}
+              wxString(const char* s) : std::string(s) {}
+              wxString(const std::string& s) : std::string(s) {}
+          };
+          #endif
 
           #ifndef wxT
           #define wxT(x) x
@@ -83,37 +85,33 @@ jobs:
           #ifndef _
           #define _(x) x
           #endif
-          
-          #define wxEmptyString std::string("")
-          #define wxLogMessage(...) printf(__VA_ARGS__)
-          #define wxLogStatus(...) printf(__VA_ARGS__)
-          #define wxLogWarning(...) printf(__VA_ARGS__)
-          #define wxLogError(...) printf(__VA_ARGS__)
+          #define wxEmptyString ""
+          #define wxLogMessage(...) 
+          #define wxLogStatus(...)
           #define wxUnusedVar(x) (void)x
-
-          // Dummy thread/mutex classes to satisfy common/Threading.h
+          
           class wxThread { public: virtual ~wxThread() {} virtual void* Entry() = 0; };
           class wxMutex { public: void Lock() {} void Unlock() {} };
           class wxCriticalSection { public: void Enter() {} void Leave() {} };
           #endif
           EOF
 
-          # 5. MOCK WX HEADERS (Including thread.h now)
+          # 5. MOCK WX HEADERS
           for h in tokenzr.h string.h log.h setup.h intl.h crt.h msgdlg.h filefn.h config.h thread.h; do
             echo "#include \"../wx_bridge.h\"" > dummy_wx/wx/$h
           done
 
           cd build
           
-          # 6. CONFIGURE
+          # 6. CONFIGURE (Removed the conflicting -DwxString)
           cmake .. -DCMAKE_BUILD_TYPE=Release \
                    -DUSE_CUBEB=OFF -DBUILD_CUBEB=OFF \
                    -DUSE_WXWIDGETS=OFF -DUSE_OPENGL=OFF -DUSE_VULKAN=ON \
-                   -DCMAKE_CXX_FLAGS="-I${GITHUB_WORKSPACE}/dummy_wx -include ${GITHUB_WORKSPACE}/dummy_wx/wx_bridge.h -DwxString=std::string" \
+                   -DCMAKE_CXX_FLAGS="-I${GITHUB_WORKSPACE}/dummy_wx -include ${GITHUB_WORKSPACE}/dummy_wx/wx_bridge.h" \
                    -DCMAKE_C_FLAGS="-I${GITHUB_WORKSPACE}/dummy_wx" \
                    -DPCSX2_USE_PCH=OFF
 
-          # 7. STRIP INTEL FLAGS
+          # 7. STRIP INTEL FLAGS (Fixing SSE error)
           find . -name "*.make" -exec sed -i '' 's/-mfpmath=sse//g' {} +
           find . -name "*.make" -exec sed -i '' 's/-msse[^ ]*//g' {} +
           
