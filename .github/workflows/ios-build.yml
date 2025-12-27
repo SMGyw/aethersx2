@@ -44,7 +44,7 @@ jobs:
 
       - name: Build Core
         run: |
-          # 1. TOTAL RESET
+          # 1. TOTAL RESET & PURGE
           git checkout .
           git clean -fd
           rm -rf build && mkdir build
@@ -52,12 +52,16 @@ jobs:
           export LC_CTYPE=C
           export LANG=C
           
-          # 2. NEUTRALIZE MAC FILES
+          # 2. BYPASS ZLIB ERROR (The 20% Fix)
+          # We tell CMake that ZLIB is already found in the system to skip building the buggy 3rdparty version
+          export ZLIB_ROOT=$(xcode-select -p)/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/usr
+          
+          # 3. NEUTRALIZATION OF MAC-ONLY CODE
           echo "// Empty" > common/GL/ContextAGL.mm
           echo "// Empty" > 3rdparty/cubeb/src/cubeb_resampler.cpp
           echo "// Empty" > 3rdparty/cubeb/src/cubeb_audiounit.cpp
 
-          # 3. THE REFINED BRIDGE
+          # 4. THE ULTIMATE BRIDGE HEADER (Minimalist)
           cat <<EOF > dummy_wx/wx_bridge.h
           #pragma once
           #ifdef __cplusplus
@@ -77,35 +81,31 @@ jobs:
           #define wxLogStatus(...) printf(__VA_ARGS__)
           #define wxLogWarning(...) printf(__VA_ARGS__)
           #define wxLogError(...) printf(__VA_ARGS__)
-          #define wxPrintf(...) printf(__VA_ARGS__)
           #define wxUnusedVar(x) (void)x
           #endif
           EOF
 
-          # 4. MOCK WX HEADERS
+          # 5. MOCK WX HEADERS
           for h in tokenzr.h string.h log.h setup.h intl.h crt.h msgdlg.h filefn.h config.h; do
             echo "#include \"../wx_bridge.h\"" > dummy_wx/wx/$h
           done
 
           cd build
           
-          # 5. CONFIGURE
+          # 6. CONFIGURE WITH SYSTEM ZLIB
+          # We explicitly disable the internal ZLIB and use the system one
           cmake .. -DCMAKE_BUILD_TYPE=Release \
                    -DUSE_CUBEB=OFF -DBUILD_CUBEB=OFF \
                    -DUSE_WXWIDGETS=OFF -DUSE_OPENGL=OFF -DUSE_VULKAN=ON \
+                   -DZLIB_USE_STATIC_LIBS=OFF -DZLIB_INCLUDE_DIR=/usr/include \
                    -DCMAKE_CXX_FLAGS="-I${GITHUB_WORKSPACE}/dummy_wx -include ${GITHUB_WORKSPACE}/dummy_wx/wx_bridge.h -DHAVE_FDOPEN=0" \
                    -DCMAKE_C_FLAGS="-I${GITHUB_WORKSPACE}/dummy_wx -DHAVE_FDOPEN=0" \
                    -DPCSX2_USE_PCH=OFF -DCLANG_ENABLE_PCH=OFF -DENABLE_PCH=OFF \
                    -DCMAKE_DISABLE_PRECOMPILED_HEADERS=ON
 
-          # 6. THE 20% NUCLEAR FIX (Aggressive Cleanup)
-          # We search for any flags.make that belongs to a C compiler and strip ALL wx defines
-          echo "Aggressively cleaning C compiler flags..."
-          find . -name "flags.make" -exec sed -i '' 's/-DwxString=[^ ]*//g' {} +
-          find . -name "flags.make" -exec sed -i '' 's/-Dwx[^ ]*//g' {} +
-          
-          # 7. ARCHITECTURE PATCHES
-          find . -name "flags.make" -exec sed -i '' 's/-x objective-c++/ /g' {} +
+          # 7. AGGRESSIVE FLAG CLEANUP (Post-Configure)
+          # Remove any wx definitions that leaked into C files
+          find . -name "flags.make" -exec sed -i '' 's/-DwxString=std::string//g' {} +
           find . -name "flags.make" -exec sed -i '' 's/-mfpmath=sse//g' {} +
           find . -name "flags.make" -exec sed -i '' 's/-msse[^ ]*//g' {} +
           
