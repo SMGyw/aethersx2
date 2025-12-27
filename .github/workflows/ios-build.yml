@@ -44,24 +44,23 @@ jobs:
 
       - name: Build Core
         run: |
-          # 1. Fresh Start
+          # 1. Fresh Workspace and Environment
           rm -rf build && mkdir build
           mkdir -p dummy_wx/wx
           export LC_CTYPE=C
           export LANG=C
           
-          # 2. SOURCE-LEVEL SURGERY (The 31%/32% Final Fix)
-          # Completely strip any mention of precompiled headers from CMake files
-          echo "Purging PCH from source files..."
-          find . -name "CMakeLists.txt" -exec sed -i '' '/target_precompiled_headers/d' {} +
-          find . -name "*.cmake" -exec sed -i '' '/target_precompiled_headers/d' {} +
+          # 2. CAREFUL SOURCE PATCHING
+          # We disable PCH only where it exists without breaking the file structure
+          echo "Disabling PCH safely..."
+          find . -name "CMakeLists.txt" -exec sed -i '' 's/target_precompiled_headers/# target_precompiled_headers/g' {} +
           
-          # 3. Neutralize macOS specific files (Preventing 43% error)
-          sed -i '' '/ContextAGL.mm/d' common/CMakeLists.txt
+          # 3. Neutralize macOS specific files (Fixing 43% error)
+          sed -i '' '/ContextAGL.mm/d' common/CMakeLists.txt || true
           echo "int dummy_agl = 0;" > common/GL/ContextAGL.mm
           echo "#pragma once" > common/GL/ContextAGL.h
 
-          # 4. Refined Mock Bridge Header
+          # 4. Create Mock Bridge Header
           cat <<EOF > dummy_wx/wx_bridge.h
           #pragma once
           #include <string>
@@ -92,13 +91,13 @@ jobs:
 
           cd build
           
-          # 5. Configure with Aggressive Bypass Flags
-          # We use -fno-pch to tell Clang/LLVM to never look for PCH files
+          # 5. Configure with Correct Flags (Removed -fno-pch)
+          # We use -Dfdopen=z_ios_fdopen which worked to get us to 44%
           cmake .. -DCMAKE_BUILD_TYPE=Release \
                    -DUSE_CUBEB=OFF -DBUILD_CUBEB=OFF \
                    -DUSE_WXWIDGETS=OFF -DUSE_OPENGL=OFF \
-                   -DCMAKE_C_FLAGS="-DHAVE_FDOPEN=0 -Dfdopen=z_ios_fdopen -fno-pch" \
-                   -DCMAKE_CXX_FLAGS="-DHAVE_FDOPEN=0 -Dfdopen=z_ios_fdopen -fno-pch" \
+                   -DCMAKE_C_FLAGS="-DHAVE_FDOPEN=0 -Dfdopen=z_ios_fdopen" \
+                   -DCMAKE_CXX_FLAGS="-DHAVE_FDOPEN=0 -Dfdopen=z_ios_fdopen" \
                    -DPCSX2_USE_PCH=OFF -DCLANG_ENABLE_PCH=OFF -DENABLE_PCH=OFF \
                    -DCMAKE_DISABLE_PRECOMPILED_HEADERS=ON
 
@@ -109,11 +108,9 @@ jobs:
             fi
           done
 
-          # 7. Final Makefile Cleaning
-          # Delete any remaining PCH rules from generated makefiles
-          find . -name "build.make" -exec sed -i '' '/cmake_pch/d' {} +
+          # 7. Post-Configure Cleanup (Fixing 32% and SSE)
           find . -name "flags.make" -exec sed -i '' 's/-include-pch [^ ]*//g' {} +
           find . -name "flags.make" -exec sed -i '' 's/-mfpmath=sse//g' {} +
 
-          # 8. Start Compilation
+          # 8. Start Build
           cmake --build . --config Release -- -j $(sysctl -n hw.logicalcpu)
