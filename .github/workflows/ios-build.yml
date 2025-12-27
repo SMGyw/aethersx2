@@ -44,25 +44,27 @@ jobs:
 
       - name: Build Core
         run: |
-          # 1. Environment Setup
+          # 1. Workspace Prep
           rm -rf build && mkdir build
           mkdir -p dummy_wx/wx
           export LC_CTYPE=C
           export LANG=C
           
-          # 2. PRO-LEVEL ZLIB FIX (Fixing 17% and 20%)
-          # Instead of deleting lines, we inject an override at the very top of the files
-          echo "Injecting iOS compatibility macros into zlib..."
-          find 3rdparty/libchdr/libchdr/deps/zlib-1.2.11 -name "*.c" -exec sed -i '' '1i\
+          # 2. THE ULTIMATE ZLIB BYPASS (Fixing 20% error)
+          # We force the compiler to ignore the problematic fdopen definition via preprocessor flags
+          echo "Force-patching zlib/zutil.c..."
+          sed -i '' 's/extern.*fdopen/#define NO_FDOPEN_DECL/g' 3rdparty/libchdr/libchdr/deps/zlib-1.2.11/zutil.c
+          sed -i '' 's/fdopen/z_ios_fdopen/g' 3rdparty/libchdr/libchdr/deps/zlib-1.2.11/zutil.c
+          sed -i '' '1i\
           #define HAVE_FDOPEN 0\
           #define NO_FDOPEN 1\
-          ' {} +
+          ' 3rdparty/libchdr/libchdr/deps/zlib-1.2.11/zutil.c
 
-          # 3. Disable macOS Graphics Frameworks (Fixing 43%)
+          # 3. macOS/GL Artifacts Cleanup (Fixing 43% error)
           echo "// Empty" > common/GL/ContextAGL.mm
           echo "// Empty" > common/GL/ContextAGL.h
 
-          # 4. Create Mock Bridge Header (Fixing 32%)
+          # 4. Mock Bridge Header (Fixing 32% error)
           cat <<EOF > dummy_wx/wx_bridge.h
           #pragma once
           #include <string>
@@ -91,21 +93,24 @@ jobs:
 
           cd build
           
-          # 5. Configure CMake with iOS specific stdio flags
+          # 5. Configure with extra forced flags
           cmake .. -DCMAKE_BUILD_TYPE=Release \
                    -DUSE_CUBEB=OFF -DBUILD_CUBEB=OFF \
                    -DUSE_WXWIDGETS=OFF -DUSE_OPENGL=OFF \
-                   -DHAVE_FDOPEN=0 -DNO_FDOPEN=1 \
-                   -DPCSX2_USE_PCH=OFF -DCLANG_ENABLE_PCH=OFF
+                   -DHAVE_FDOPEN=OFF -DPCSX2_USE_PCH=OFF \
+                   -DCLANG_ENABLE_PCH=OFF -DCMAKE_DISABLE_PRECOMPILED_HEADERS=ON
 
-          # 6. Post-Configure Cleanup (PCH & SSE)
+          # 6. Post-Configure "Nuclear" Clean
+          # Forcefully remove PCH and SSE from all generated build files
           find . -name "*.make" -exec sed -i '' 's/-include-pch [^ ]*//g' {} +
           find . -name "flags.make" -exec sed -i '' 's/-include-pch [^ ]*//g' {} +
           find . -name "*.make" -exec sed -i '' 's/-mfpmath=sse//g' {} +
           find . -name "flags.make" -exec sed -i '' 's/-mfpmath=sse//g' {} +
+          
+          # Final bypass for the stubborn ContextAGL
           find . -name "build.make" -exec sed -i '' 's/ContextAGL.mm.o//g' {} +
 
-          # 7. Targeted Injection
+          # 7. Bridge Injection
           if [ -d "common/CMakeFiles/common.dir" ]; then
             sed -i '' "s|CXX_FLAGS = |CXX_FLAGS = -include ${GITHUB_WORKSPACE}/dummy_wx/wx_bridge.h |" common/CMakeFiles/common.dir/flags.make
           fi
