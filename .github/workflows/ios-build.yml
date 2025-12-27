@@ -49,10 +49,12 @@ jobs:
           export LC_CTYPE=C
           export LANG=C
           
-          # 2. UNIVERSAL SOURCE SURGERY
-          # We search for ALL .cpp files in the repository to avoid "No such file" errors
-          echo "Injecting raw macros into all source files..."
-          find . -name "*.cpp" -not -path "./build/*" -exec sed -i '' '1i\
+          # 2. TARGETED SOURCE SURGERY (The "Smart Injection" Strategy)
+          # We only inject into folders that actually use wxWidgets to avoid breaking 3rdparty libs like glslang
+          echo "Injecting macros into core folders only..."
+          for dir in "common" "core" "pcsx2"; do
+            if [ -d "$dir" ]; then
+              find "$dir" -name "*.cpp" -exec sed -i '' '1i\
           #include <string>\
           #include <stdarg.h>\
           #include <algorithm>\
@@ -71,13 +73,15 @@ jobs:
           #define wxUnusedVar(x) (void)x\
           #endif
           ' {} +
+            fi
+          done
 
-          # 3. FIX VirtualMemory.cpp (Safety check if file exists)
+          # 3. FIX VirtualMemory.cpp (iOS Posix Compatibility)
           if [ -f "common/VirtualMemory.cpp" ]; then
             sed -i '' 's/#ifdef __APPLE__/#ifdef TARGET_OS_IPHONE_STUB/g' common/VirtualMemory.cpp
           fi
 
-          # 4. Remove macOS dependencies from CMake
+          # 4. Global Source Clean (Removing Mac-only files from build plan)
           find . -name "CMakeLists.txt" -exec sed -i '' '/ContextAGL.mm/d' {} + || true
 
           cd build
@@ -91,7 +95,7 @@ jobs:
                    -DPCSX2_USE_PCH=OFF -DCLANG_ENABLE_PCH=OFF -DENABLE_PCH=OFF \
                    -DCMAKE_DISABLE_PRECOMPILED_HEADERS=ON
 
-          # 6. Global Build System Cleanup
+          # 6. Global Build System Cleanup (Standardizing the environment)
           find . -name "flags.make" -exec sed -i '' 's/-x objective-c++/ /g' {} +
           find . -name "flags.make" -exec sed -i '' 's/-include-pch [^ ]*//g' {} +
           find . -name "flags.make" -exec sed -i '' 's/-mfpmath=sse//g' {} +
