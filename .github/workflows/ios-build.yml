@@ -48,11 +48,16 @@ jobs:
           rm -rf build && mkdir build
           mkdir -p dummy_wx/wx
           
-          # 2. THE ULTIMATE ZLIB PATCH (Fix for 20% error)
-          # We rename fdopen inside zlib source to something else so it never conflicts with iOS
-          echo "Patching zlib source to avoid iOS conflicts..."
-          find 3rdparty/libchdr/libchdr/deps/zlib-1.2.11 -type f \( -name "*.c" -o -name "*.h" \) -exec sed -i '' 's/\bfdopen\b/zlib_fdopen/g' {} +
-          
+          # 2. THE NUCLEAR ZLIB PATCH (Fix for 20% error)
+          # We will force zlib to believe NO fdopen exists on this system
+          echo "Hard-patching zlib to disable fdopen calls..."
+          find 3rdparty/libchdr/libchdr/deps/zlib-1.2.11 -name "zconf.h" -exec sed -i '' 's/#ifdef HAVE_FDOPEN/#if 0/g' {} +
+          find 3rdparty/libchdr/libchdr/deps/zlib-1.2.11 -name "zutil.h" -exec sed -i '' '/#.*define.*fdopen/d' {} +
+          # Force zutil.c to ignore fdopen
+          sed -i '' '1i\
+          #define NO_FDOPEN
+          ' 3rdparty/libchdr/libchdr/deps/zlib-1.2.11/zutil.c
+
           # 3. Force empty files for macOS/Audio artifacts
           echo "// Empty" > common/GL/ContextAGL.mm
           echo "// Empty" > common/GL/ContextAGL.h
@@ -88,15 +93,16 @@ jobs:
 
           cd build
           
-          # 5. Configure with PCH and OpenGLES forced off
+          # 5. Configure with strict iOS settings
           cmake .. -DCMAKE_BUILD_TYPE=Release \
                    -DUSE_CUBEB=OFF -DBUILD_CUBEB=OFF \
                    -DUSE_WXWIDGETS=OFF -DUSE_OPENGL=OFF \
                    -DHAVE_FDOPEN=0 \
+                   -DNO_FDOPEN=1 \
                    -DPCSX2_USE_PCH=OFF \
                    -DCLANG_ENABLE_PCH=OFF
 
-          # 6. Post-Configure: Kill PCH and SSE flags forcefully
+          # 6. Post-Configure Cleanup (PCH & SSE)
           find . -name "*.make" -exec sed -i '' 's/-include-pch [^ ]*//g' {} +
           find . -name "flags.make" -exec sed -i '' 's/-include-pch [^ ]*//g' {} +
           find . -name "*.make" -exec sed -i '' 's/-mfpmath=sse//g' {} +
