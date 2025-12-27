@@ -44,27 +44,25 @@ jobs:
 
       - name: Build Core
         run: |
-          # 1. Workspace Cleanup
+          # 1. Environment Refresh
           rm -rf build && mkdir build
           mkdir -p dummy_wx/wx
           export LC_CTYPE=C
           export LANG=C
           
-          # 2. Neutralize Desktop Artifacts (Keep files, but empty them)
+          # 2. Fix macOS/Audio leftovers (Neutralizing without breaking)
           echo "// Empty" > 3rdparty/cubeb/src/cubeb_resampler.cpp
           echo "// Empty" > 3rdparty/cubeb/src/cubeb_audiounit.cpp
           echo "// Empty" > common/GL/ContextAGL.mm
           echo "// Empty" > common/GL/ContextAGL.h
 
-          # 3. Enhanced Mock Bridge Header (Fixing 32% errors)
-          # We add wxLog, wxPrintf, and common macros used in Core files
+          # 3. Refined Mock Bridge Header
           cat <<EOF > dummy_wx/wx_bridge.h
           #pragma once
           #include <string>
           #include <stdarg.h>
           #include <algorithm>
           #include <iostream>
-
           class wxString : public std::string {
           public:
               using std::string::string;
@@ -82,24 +80,18 @@ jobs:
                   return wxString(buf);
               }
           };
-
-          // Mocking Logging and Console
           #define wxLogMessage(...) printf(__VA_ARGS__)
-          #define wxLogStatus(...) printf(__VA_ARGS__)
           #define wxLogWarning(...) printf(__VA_ARGS__)
           #define wxLogError(...) fprintf(stderr, __VA_ARGS__)
-          #define wxLogFatalError(...) fprintf(stderr, __VA_ARGS__)
-          #define wxLogDebug(...) printf(__VA_ARGS__)
           #define wxPrintf(...) printf(__VA_ARGS__)
           #define wxEmptyString wxString("")
           #define wxT(x) x
           #define _(x) x
-          #define wxUnusedVar(x) (void)x
           EOF
 
           cd build
           
-          # 4. Configure with absolute PCH and Audio disabling
+          # 4. Configure with specialized iOS Flags
           cmake .. -DCMAKE_BUILD_TYPE=Release \
                    -DUSE_CUBEB=OFF -DBUILD_CUBEB=OFF \
                    -DUSE_WXWIDGETS=OFF -DUSE_OPENGL=OFF \
@@ -107,14 +99,20 @@ jobs:
                    -DCMAKE_CXX_FLAGS="-DHAVE_FDOPEN=0 -Dfdopen=z_ios_fdopen" \
                    -DPCSX2_USE_PCH=OFF -DCLANG_ENABLE_PCH=OFF -DENABLE_PCH=OFF
 
-          # 5. Build System Post-Patching
+          # 5. Targeted Injection (ONLY for common, core, and pcsx2)
+          # This prevents breaking clean libraries like fmt and glslang
+          echo "Injecting bridge only into target modules..."
+          for mod in "common" "core" "pcsx2"; do
+            if [ -d "$mod/CMakeFiles" ]; then
+              find "$mod/CMakeFiles" -name "flags.make" -exec sed -i '' "s|CXX_FLAGS = |CXX_FLAGS = -include ${GITHUB_WORKSPACE}/dummy_wx/wx_bridge.h |" {} +
+            fi
+          done
+
+          # 6. Final Build System Cleanup
+          # Remove PCH and SSE artifacts that cause 0% and 31% failures
           find . -name "*.make" -exec sed -i '' 's/-include-pch [^ ]*//g' {} +
           find . -name "flags.make" -exec sed -i '' 's/-include-pch [^ ]*//g' {} +
-          find . -name "build.make" -exec sed -i '' 's/cmake_pch.hxx.pch//g' {} +
           find . -name "flags.make" -exec sed -i '' 's/-mfpmath=sse//g' {} +
-
-          # 6. Global Bridge Injection (Apply to ALL targets to fix AlignedMalloc/Console)
-          find . -name "flags.make" -exec sed -i '' "s|CXX_FLAGS = |CXX_FLAGS = -include ${GITHUB_WORKSPACE}/dummy_wx/wx_bridge.h |" {} +
 
           # 7. Start Build
           cmake --build . --config Release -- -j $(sysctl -n hw.logicalcpu)
