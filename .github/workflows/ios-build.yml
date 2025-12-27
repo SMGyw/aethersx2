@@ -47,17 +47,19 @@ jobs:
           # 1. Environment Setup
           rm -rf build && mkdir build
           mkdir -p dummy_wx/wx
-          
-          # 2. FIXING SED ENCODING ERROR & ZLIB (The 20% Fix)
-          # We export LC_CTYPE=C to prevent "illegal byte sequence" error
           export LC_CTYPE=C
           export LANG=C
           
-          echo "Patching zlib source safely..."
-          # Use a more robust way to disable fdopen in zlib
-          find 3rdparty/libchdr/libchdr/deps/zlib-1.2.11 -type f \( -name "*.c" -o -name "*.h" \) -exec sed -i '' 's/\bfdopen\b/zlib_fdopen_ios/g' {} +
-          
-          # 3. Prevent macOS Graphics issues (Fixing 43%)
+          # 2. THE FINAL ZLIB OVERRIDE (Breaking the 20% wall)
+          # We manually remove the conflicting fdopen lines from zutil.c and zutil.h
+          echo "Hard-patching zlib source to remove fdopen conflicts..."
+          # Remove any line containing 'fdopen' in zutil.c/zutil.h
+          sed -i '' '/fdopen/d' 3rdparty/libchdr/libchdr/deps/zlib-1.2.11/zutil.c
+          sed -i '' '/fdopen/d' 3rdparty/libchdr/libchdr/deps/zlib-1.2.11/zutil.h
+          # Also patch zconf.h just in case
+          sed -i '' '/fdopen/d' 3rdparty/libchdr/libchdr/deps/zlib-1.2.11/zconf.h
+
+          # 3. Disable macOS Graphics Frameworks (Fixing the 43% hang)
           echo "// Empty" > common/GL/ContextAGL.mm
           echo "// Empty" > common/GL/ContextAGL.h
 
@@ -90,15 +92,14 @@ jobs:
 
           cd build
           
-          # 5. Configure CMake with iOS settings
+          # 5. Configure CMake with strict flags
           cmake .. -DCMAKE_BUILD_TYPE=Release \
                    -DUSE_CUBEB=OFF -DBUILD_CUBEB=OFF \
                    -DUSE_WXWIDGETS=OFF -DUSE_OPENGL=OFF \
                    -DHAVE_FDOPEN=0 -DNO_FDOPEN=1 \
                    -DPCSX2_USE_PCH=OFF -DCLANG_ENABLE_PCH=OFF
 
-          # 6. Post-Configure Clean (PCH & SSE)
-          echo "Stripping incompatible flags..."
+          # 6. Post-Configure System Cleaning
           find . -name "*.make" -exec sed -i '' 's/-include-pch [^ ]*//g' {} +
           find . -name "flags.make" -exec sed -i '' 's/-include-pch [^ ]*//g' {} +
           find . -name "*.make" -exec sed -i '' 's/-mfpmath=sse//g' {} +
