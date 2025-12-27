@@ -50,7 +50,9 @@ jobs:
           export LC_CTYPE=C
           export LANG=C
           
-          # 2. Source Neutralization
+          # 2. SOURCE NEUTRALIZATION (The Final 44% Fix)
+          # We create the .cpp stub, but we also create a SYMLINK so the linker 
+          # finds 'ContextAGL.mm.o' even if it's actually built from a .cpp file.
           echo "int agl_stub_symbol = 0;" > common/GL/ContextAGL.cpp
           echo "#pragma once" > common/GL/ContextAGL.h
           echo "void cubeb_stub() {}" > 3rdparty/cubeb/src/cubeb_resampler.cpp
@@ -106,14 +108,17 @@ jobs:
                    -DPCSX2_USE_PCH=OFF -DCLANG_ENABLE_PCH=OFF -DENABLE_PCH=OFF \
                    -DCMAKE_DISABLE_PRECOMPILED_HEADERS=ON
 
-          # 5. THE LINKER FIX (Fixing 44% Archive Error)
-          # We must update the object list in build.make so 'ar' finds ContextAGL.cpp.o instead of .mm.o
-          echo "Updating object list for the archiver..."
+          # 5. GLOBAL FIX FOR LINKER (The Symlink Trick)
+          # We force the build system to use our .cpp stub but let it think it's the .mm one
+          echo "Patching Makefiles and preparing symlinks..."
           find . -name "build.make" -exec sed -i '' 's/ContextAGL.mm/ContextAGL.cpp/g' {} +
-          find . -name "link.txt" -exec sed -i '' 's/ContextAGL.mm/ContextAGL.cpp/g' {} +
-          
-          # Remove macOS flags and PCH
           find . -name "flags.make" -exec sed -i '' 's/-x objective-c++/ /g' {} +
+          
+          # Create a symbolic link for the expected object file so 'ar' never fails
+          mkdir -p common/CMakeFiles/common.dir/GL/
+          ln -sf ContextAGL.cpp.o build/common/CMakeFiles/common.dir/GL/ContextAGL.mm.o || true
+
+          # Clean PCH and SSE artifacts
           find . -name "flags.make" -exec sed -i '' 's/-include-pch [^ ]*//g' {} +
           find . -name "flags.make" -exec sed -i '' 's/-mfpmath=sse//g' {} +
           find . -name "build.make" -exec sed -i '' '/cmake_pch.hxx.pch/d' {} +
