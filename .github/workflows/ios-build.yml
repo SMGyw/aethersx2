@@ -52,11 +52,11 @@ jobs:
           export LC_CTYPE=C
           export LANG=C
           
-          # 2. THE ZLIB BYPASS (Fixing the CMake Error)
-          # Instead of deleting, we empty the CMakeLists of the internal zlib
-          # This satisfies the 'add_subdirectory' requirement without building it
+          # 2. THE MODERN ZLIB BYPASS (Fixing CMake 3.5 requirement)
+          # We set the version to 3.10 to be safe and satisfy all warnings
           if [ -d "3rdparty/libchdr/libchdr/deps/zlib-1.2.11" ]; then
-            echo "cmake_minimum_required(VERSION 3.0)" > 3rdparty/libchdr/libchdr/deps/zlib-1.2.11/CMakeLists.txt
+            echo "cmake_minimum_required(VERSION 3.10)" > 3rdparty/libchdr/libchdr/deps/zlib-1.2.11/CMakeLists.txt
+            echo "project(zlib_dummy)" >> 3rdparty/libchdr/libchdr/deps/zlib-1.2.11/CMakeLists.txt
             echo "add_library(zlib INTERFACE)" >> 3rdparty/libchdr/libchdr/deps/zlib-1.2.11/CMakeLists.txt
           fi
 
@@ -97,10 +97,12 @@ jobs:
 
           cd build
           
-          # 6. CONFIGURE (Forcing System ZLIB)
+          # 6. CONFIGURE (Forcing System ZLIB & Setting Policy)
           cmake .. -DCMAKE_BUILD_TYPE=Release \
+                   -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
                    -DUSE_CUBEB=OFF -DBUILD_CUBEB=OFF \
                    -DUSE_WXWIDGETS=OFF -DUSE_OPENGL=OFF -DUSE_VULKAN=ON \
+                   -DBUILD_LIBCHDR=OFF \
                    -DZLIB_INCLUDE_DIR=/Applications/Xcode_16.4.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/usr/include \
                    -DZLIB_LIBRARY=/Applications/Xcode_16.4.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/usr/lib/libz.tbd \
                    -DCMAKE_CXX_FLAGS="-I${GITHUB_WORKSPACE}/dummy_wx -include ${GITHUB_WORKSPACE}/dummy_wx/wx_bridge.h -DHAVE_FDOPEN=0" \
