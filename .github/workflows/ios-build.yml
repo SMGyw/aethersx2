@@ -44,20 +44,21 @@ jobs:
 
       - name: Build Core
         run: |
-          # 1. Fresh Workspace
+          # 1. Environment Refresh
           rm -rf build && mkdir build
           mkdir -p dummy_wx/wx
           export LC_CTYPE=C
           export LANG=C
           
-          # 2. Complete Neutralization of macOS/Audio (Fixing 43% and 30%)
-          # We force these files to be pure empty C++ to prevent Objective-C compilation
-          echo "// Empty" > common/GL/ContextAGL.mm
-          echo "// Empty" > common/GL/ContextAGL.h
-          echo "// Empty" > 3rdparty/cubeb/src/cubeb_resampler.cpp
-          echo "// Empty" > 3rdparty/cubeb/src/cubeb_audiounit.cpp
+          # 2. Advanced Neutralization (The 44% Fix)
+          # Instead of deleting, we provide valid but empty C++ implementations
+          # to satisfy the 'ar' archiver.
+          echo "int dummy_context_agl = 0;" > common/GL/ContextAGL.mm
+          echo "#pragma once" > common/GL/ContextAGL.h
+          echo "void dummy_resampler() {}" > 3rdparty/cubeb/src/cubeb_resampler.cpp
+          echo "void dummy_audiounit() {}" > 3rdparty/cubeb/src/cubeb_audiounit.cpp
 
-          # 3. Enhanced Mock Bridge Header
+          # 3. Create Refined Mock Bridge Header
           cat <<EOF > dummy_wx/wx_bridge.h
           #pragma once
           #include <string>
@@ -88,30 +89,28 @@ jobs:
 
           cd build
           
-          # 4. Configure with Absolute Bypasses (The 31% Fix)
-          # We explicitly tell CMake to NOT use PCH at all
+          # 4. Configure with Strict iOS Environment
           cmake .. -DCMAKE_BUILD_TYPE=Release \
                    -DUSE_CUBEB=OFF -DBUILD_CUBEB=OFF \
                    -DUSE_WXWIDGETS=OFF -DUSE_OPENGL=OFF \
                    -DCMAKE_C_FLAGS="-DHAVE_FDOPEN=0 -Dfdopen=z_ios_fdopen" \
                    -DCMAKE_CXX_FLAGS="-DHAVE_FDOPEN=0 -Dfdopen=z_ios_fdopen" \
-                   -DPCSX2_USE_PCH=OFF \
-                   -DCLANG_ENABLE_PCH=OFF \
-                   -DENABLE_PCH=OFF \
-                   -DCMAKE_DISABLE_PRECOMPILED_HEADERS=ON
+                   -DPCSX2_USE_PCH=OFF -DCLANG_ENABLE_PCH=OFF \
+                   -DENABLE_PCH=OFF -DCMAKE_DISABLE_PRECOMPILED_HEADERS=ON
 
-          # 5. Targeted Injection for Core Modules
+          # 5. Build System Surgical Patching
+          # We ensure the .mm file is treated as a normal C++ file to avoid macOS frameworks
+          echo "Treating .mm files as standard C++..."
+          find . -name "flags.make" -exec sed -i '' 's/-x objective-c++/ /g' {} +
+          
+          # Targeted Injection for Core Modules
           for mod in "common" "core" "pcsx2"; do
             if [ -d "$mod/CMakeFiles" ]; then
               find "$mod/CMakeFiles" -name "flags.make" -exec sed -i '' "s|CXX_FLAGS = |CXX_FLAGS = -include ${GITHUB_WORKSPACE}/dummy_wx/wx_bridge.h |" {} +
             fi
           done
 
-          # 6. THE NUCLEAR FIX (Deleting PCH & macOS Build Targets)
-          # We remove the PCH and ContextAGL targets from the Makefile directly
-          echo "Force-deleting PCH and macOS targets from build system..."
-          find . -name "build.make" -exec sed -i '' '/cmake_pch.hxx.pch/d' {} +
-          find . -name "build.make" -exec sed -i '' '/ContextAGL.mm.o/d' {} +
+          # 6. Final Clean of PCH and SSE artifacts
           find . -name "flags.make" -exec sed -i '' 's/-include-pch [^ ]*//g' {} +
           find . -name "flags.make" -exec sed -i '' 's/-mfpmath=sse//g' {} +
 
