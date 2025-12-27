@@ -44,22 +44,22 @@ jobs:
 
       - name: Build Core
         run: |
-          # 1. Start Fresh
+          # 1. Environment Setup
           rm -rf build && mkdir build
           mkdir -p dummy_wx/wx
           
-          # 2. Kill the macOS/GL files once and for all
-          # We use .cpp extension to trick the compiler into ignoring Objective-C logic
+          # 2. Critical Patch for zlib (Fixing the 20% hang)
+          # Remove conflicting fdopen declarations directly from source
+          echo "Patching zlib source to bypass iOS stdio conflicts..."
+          sed -i '' '/extern.*fdopen/d' 3rdparty/libchdr/libchdr/deps/zlib-1.2.11/zutil.c
+          sed -i '' 's/\bfdopen\b/zlib_fdopen/g' 3rdparty/libchdr/libchdr/deps/zlib-1.2.11/zutil.c
+          sed -i '' 's/\bfdopen\b/zlib_fdopen/g' 3rdparty/libchdr/libchdr/deps/zlib-1.2.11/zutil.h
+
+          # 3. Disable macOS-specific Graphics files (Fixing the 43% hang)
           echo "// Empty" > common/GL/ContextAGL.mm
           echo "// Empty" > common/GL/ContextAGL.h
-          
-          # 3. Patch zlib (Keeping our 20% fix)
-          find 3rdparty/libchdr/libchdr/deps/zlib-1.2.11 -name "zconf.h" -exec sed -i '' 's/#ifdef HAVE_FDOPEN/#if 0/g' {} +
-          sed -i '' '1i\
-          #define NO_FDOPEN
-          ' 3rdparty/libchdr/libchdr/deps/zlib-1.2.11/zutil.c
 
-          # 4. Create Bridge Header
+          # 4. Create the Ultimate Mock Bridge Header
           cat <<EOF > dummy_wx/wx_bridge.h
           #pragma once
           #include <string>
@@ -88,29 +88,27 @@ jobs:
 
           cd build
           
-          # 5. Configure with extra bypasses
+          # 5. Configure CMake with iOS-safe flags
           cmake .. -DCMAKE_BUILD_TYPE=Release \
                    -DUSE_CUBEB=OFF -DBUILD_CUBEB=OFF \
                    -DUSE_WXWIDGETS=OFF -DUSE_OPENGL=OFF \
                    -DHAVE_FDOPEN=0 -DNO_FDOPEN=1 \
                    -DPCSX2_USE_PCH=OFF -DCLANG_ENABLE_PCH=OFF
 
-          # 6. SURGERY: Force CMake to treat .mm as a dummy C++ file
-          # This prevents it from trying to link macOS-only Frameworks
-          echo "Force-disabling ContextAGL in build system..."
-          find . -name "build.make" -exec sed -i '' 's/ContextAGL.mm.o/ /g' {} +
-          find . -name "flags.make" -exec sed -i '' 's/-x objective-c++/ /g' {} +
-
-          # 7. Post-Configure Cleanup (PCH & SSE)
+          # 6. Post-Configure: Force-strip PCH and SSE flags
+          echo "Deep cleaning build system from incompatible flags..."
           find . -name "*.make" -exec sed -i '' 's/-include-pch [^ ]*//g' {} +
           find . -name "flags.make" -exec sed -i '' 's/-include-pch [^ ]*//g' {} +
           find . -name "*.make" -exec sed -i '' 's/-mfpmath=sse//g' {} +
           find . -name "flags.make" -exec sed -i '' 's/-mfpmath=sse//g' {} +
+          
+          # Remove ContextAGL from the link list manually
+          find . -name "build.make" -exec sed -i '' 's/ContextAGL.mm.o//g' {} +
 
-          # 8. Inject Bridge
+          # 7. Targeted Header Injection
           if [ -d "common/CMakeFiles/common.dir" ]; then
             sed -i '' "s|CXX_FLAGS = |CXX_FLAGS = -include ${GITHUB_WORKSPACE}/dummy_wx/wx_bridge.h |" common/CMakeFiles/common.dir/flags.make
           fi
 
-          # 9. Build
+          # 8. Start the Compilation
           cmake --build . --config Release -- -j $(sysctl -n hw.logicalcpu)
