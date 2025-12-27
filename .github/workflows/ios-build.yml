@@ -48,19 +48,18 @@ jobs:
           rm -rf build && mkdir build
           mkdir -p dummy_wx/wx
           
-          # 2. Hard Patch for zlib (The 20% Fix)
-          # We must define HAVE_FDOPEN to prevent zlib from redefining it on iOS
-          find 3rdparty/libchdr/libchdr/deps/zlib-1.2.11 -name "zutil.h" -exec sed -i '' '1i\
-          #define HAVE_FDOPEN 1
-          ' {} +
+          # 2. THE ZLIB FIX (Anti-20% Error)
+          # Force zlib to NEVER use fdopen by commenting it out in the header
+          echo "Patching zlib for iOS compatibility..."
+          find 3rdparty/libchdr/libchdr/deps/zlib-1.2.11 -name "zconf.h" -exec sed -i '' 's/extern.*fdopen/ \/\/ extern fdopen/g' {} +
+          find 3rdparty/libchdr/libchdr/deps/zlib-1.2.11 -name "zutil.h" -exec sed -i '' '/#.*define.*fdopen/d' {} +
           
-          # 3. Force empty files for macOS/Audio artifacts
+          # 3. Create Mock Bridge and empty artifacts
           echo "// Empty" > common/GL/ContextAGL.mm
           echo "// Empty" > common/GL/ContextAGL.h
           echo "// Empty" > 3rdparty/cubeb/src/cubeb_resampler.cpp
           echo "// Empty" > 3rdparty/cubeb/src/cubeb_audiounit.cpp
 
-          # 4. Create the Mock Bridge Header (For 31%+)
           cat <<EOF > dummy_wx/wx_bridge.h
           #pragma once
           #include <string>
@@ -89,26 +88,24 @@ jobs:
 
           cd build
           
-          # 5. Configure with HAVE_FDOPEN and PCH disabled
+          # 4. Configure with specialized flags for iOS stdio
           cmake .. -DCMAKE_BUILD_TYPE=Release \
                    -DUSE_CUBEB=OFF -DBUILD_CUBEB=OFF \
                    -DUSE_WXWIDGETS=OFF -DUSE_OPENGL=OFF \
-                   -DHAVE_FDOPEN=1 \
+                   -DHAVE_FDOPEN=0 \
                    -DPCSX2_USE_PCH=OFF \
                    -DCLANG_ENABLE_PCH=OFF
 
-          # 6. Post-Configure Fixes (The Magic Step)
-          echo "Deep cleaning flags..."
+          # 5. Post-Configure Stripping
           find . -name "*.make" -exec sed -i '' 's/-include-pch [^ ]*//g' {} +
           find . -name "flags.make" -exec sed -i '' 's/-include-pch [^ ]*//g' {} +
           find . -name "*.make" -exec sed -i '' 's/-mfpmath=sse//g' {} +
           find . -name "flags.make" -exec sed -i '' 's/-mfpmath=sse//g' {} +
 
-          # 7. Re-Inject Bridge into common
-          echo "Injecting bridge..."
+          # 6. Inject Bridge
           if [ -d "common/CMakeFiles/common.dir" ]; then
             sed -i '' "s|CXX_FLAGS = |CXX_FLAGS = -include ${GITHUB_WORKSPACE}/dummy_wx/wx_bridge.h |" common/CMakeFiles/common.dir/flags.make
           fi
 
-          # 8. Run Build
+          # 7. Run Build
           cmake --build . --config Release -- -j $(sysctl -n hw.logicalcpu)
