@@ -44,18 +44,20 @@ jobs:
 
       - name: Build Core
         run: |
-          # 1. Fresh Start
+          # 1. HARD RESET (Clean all previous messy injections)
+          git checkout .
+          git clean -fd
           rm -rf build && mkdir build
           mkdir -p dummy_wx/wx
           export LC_CTYPE=C
           export LANG=C
           
-          # 2. NEUTRALIZE INCOMPATIBLE SOURCE
+          # 2. NEUTRALIZATION (Directly on source)
           echo "// Empty" > common/GL/ContextAGL.mm
           echo "// Empty" > 3rdparty/cubeb/src/cubeb_resampler.cpp
           echo "// Empty" > 3rdparty/cubeb/src/cubeb_audiounit.cpp
 
-          # 3. THE SAFE BRIDGE HEADER
+          # 3. THE ULTIMATE BRIDGE HEADER
           cat <<EOF > dummy_wx/wx_bridge.h
           #pragma once
           #ifdef __cplusplus
@@ -64,7 +66,6 @@ jobs:
           #include <algorithm>
           #include <stdarg.h>
           #include <iostream>
-
           typedef std::string wxString;
           #define wxT(x) x
           #define _(x) x
@@ -83,33 +84,23 @@ jobs:
             echo "#include \"../wx_bridge.h\"" > dummy_wx/wx/$h
           done
 
-          # 5. SELECTIVE INJECTION (The 20% Fix)
-          # We only inject into specific directories and ONLY into .cpp/.mm files
-          echo "Injecting bridge into core application files..."
-          for dir in "common" "core" "pcsx2" "aethersx2"; do
-            if [ -d "$dir" ]; then
-              # Only target C++ files to keep C libraries like zlib clean
-              find "$dir" \( -name "*.cpp" -o -name "*.mm" \) -exec sed -i '' '1i\
-          #include "'${GITHUB_WORKSPACE}'/dummy_wx/wx_bridge.h"
-          ' {} +
-            fi
-          done
-
           cd build
           
-          # 6. CONFIGURE
+          # 5. CONFIGURE (The "Flag Injection" Strategy)
+          # We don't touch .cpp files. We tell the compiler to include the bridge ONLY for C++ files.
           cmake .. -DCMAKE_BUILD_TYPE=Release \
                    -DUSE_CUBEB=OFF -DBUILD_CUBEB=OFF \
                    -DUSE_WXWIDGETS=OFF -DUSE_OPENGL=OFF -DUSE_VULKAN=ON \
-                   -DCMAKE_CXX_FLAGS="-I${GITHUB_WORKSPACE}/dummy_wx -DHAVE_FDOPEN=0" \
+                   -DCMAKE_CXX_FLAGS="-I${GITHUB_WORKSPACE}/dummy_wx -include ${GITHUB_WORKSPACE}/dummy_wx/wx_bridge.h -DHAVE_FDOPEN=0" \
                    -DCMAKE_C_FLAGS="-I${GITHUB_WORKSPACE}/dummy_wx -DHAVE_FDOPEN=0" \
                    -DPCSX2_USE_PCH=OFF -DCLANG_ENABLE_PCH=OFF -DENABLE_PCH=OFF \
                    -DCMAKE_DISABLE_PRECOMPILED_HEADERS=ON
 
-          # 7. STRIP INCOMPATIBLE FLAGS
+          # 6. POST-CONFIGURE FIXES
+          # Remove architecture flags that cause iOS failures
           find . -name "flags.make" -exec sed -i '' 's/-x objective-c++/ /g' {} +
-          find . -name "flags.make" -exec sed -i '' 's/-include-pch [^ ]*//g' {} +
           find . -name "flags.make" -exec sed -i '' 's/-mfpmath=sse//g' {} +
+          find . -name "flags.make" -exec sed -i '' 's/-msse[^ ]*//g' {} +
           
-          # 8. START BUILD
+          # 7. START BUILD
           cmake --build . --config Release -- -j $(sysctl -n hw.logicalcpu)
