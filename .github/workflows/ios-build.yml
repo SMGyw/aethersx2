@@ -44,13 +44,19 @@ jobs:
 
       - name: Build Core
         run: |
-          # 1. Clean Environment
+          # 1. Workspace Cleanup
           rm -rf build && mkdir build
           mkdir -p dummy_wx/wx
           export LC_CTYPE=C
           export LANG=C
           
-          # 2. CREATE THE STABLE BRIDGE HEADER
+          # 2. THE TOTAL NEUTRALIZATION (Fixing ContextAGL & Cubeb once and for all)
+          echo "Clearing incompatible Mac-specific files..."
+          echo "// Empty file for iOS build" > common/GL/ContextAGL.mm
+          echo "// Empty file for iOS build" > 3rdparty/cubeb/src/cubeb_resampler.cpp
+          echo "// Empty file for iOS build" > 3rdparty/cubeb/src/cubeb_audiounit.cpp
+
+          # 3. ROBUST BRIDGE HEADER
           cat <<EOF > dummy_wx/wx_bridge.h
           #pragma once
           #include <string>
@@ -69,55 +75,45 @@ jobs:
           #define wxLogError(...) printf(__VA_ARGS__)
           #define wxPrintf(...) printf(__VA_ARGS__)
           #define wxUnusedVar(x) (void)x
-          
-          // Mocking tokenization types if needed
-          enum wxStringTokenizeMode { wxTOKEN_DEFAULT };
           EOF
 
-          # 3. CREATE MOCK WX HEADERS (Fixing 'wx/tokenzr.h' not found)
-          # We create empty files for all common wxWidgets headers to satisfy the compiler
-          for h in tokenzr.h string.h log.h setup.h intl.h crt.h msgdlg.h filefn.h; do
+          # 4. CREATE MOCK WX STRUCTURE
+          # We add all potential missing headers here
+          for h in tokenzr.h string.h log.h setup.h intl.h crt.h msgdlg.h filefn.h config.h; do
             echo "#include \"../wx_bridge.h\"" > dummy_wx/wx/$h
           done
 
-          # 4. NEUTRALIZE SOURCE (Maintaining previous fixes)
-          echo "// Empty" > 3rdparty/cubeb/src/cubeb_resampler.cpp
-          echo "// Empty" > 3rdparty/cubeb/src/cubeb_audiounit.cpp
-          
-          # 5. TARGETED INJECTION
+          # 5. SOURCE INJECTION
           echo "Injecting bridge into core folders..."
           for dir in "common" "core" "pcsx2" "aethersx2"; do
             if [ -d "$dir" ]; then
               find "$dir" -name "*.cpp" -exec sed -i '' '1i\
           #include "'${GITHUB_WORKSPACE}'/dummy_wx/wx_bridge.h"
           ' {} +
-              # Also inject into .mm files to fix ContextAGL
               find "$dir" -name "*.mm" -exec sed -i '' '1i\
           #include "'${GITHUB_WORKSPACE}'/dummy_wx/wx_bridge.h"
           ' {} +
             fi
           done
 
-          # 6. PATCH VirtualMemory for iOS
-          if [ -f "common/VirtualMemory.cpp" ]; then
-            sed -i '' 's/#ifdef __APPLE__/#ifdef TARGET_OS_IPHONE_STUB/g' common/VirtualMemory.cpp
-          fi
-
           cd build
           
-          # 7. Configure with Include Path pointing to our dummy headers
+          # 6. CONFIGURE
+          # We force the compiler to ignore PCH and SSE
           cmake .. -DCMAKE_BUILD_TYPE=Release \
                    -DUSE_CUBEB=OFF -DBUILD_CUBEB=OFF \
                    -DUSE_WXWIDGETS=OFF -DUSE_OPENGL=OFF -DUSE_VULKAN=ON \
-                   -DCMAKE_CXX_FLAGS="-I${GITHUB_WORKSPACE}/dummy_wx -DHAVE_FDOPEN=0 -Dfdopen=z_ios_fdopen" \
-                   -DCMAKE_C_FLAGS="-I${GITHUB_WORKSPACE}/dummy_wx -DHAVE_FDOPEN=0 -Dfdopen=z_ios_fdopen" \
+                   -DCMAKE_CXX_FLAGS="-I${GITHUB_WORKSPACE}/dummy_wx -DHAVE_FDOPEN=0" \
+                   -DCMAKE_C_FLAGS="-I${GITHUB_WORKSPACE}/dummy_wx -DHAVE_FDOPEN=0" \
                    -DPCSX2_USE_PCH=OFF -DCLANG_ENABLE_PCH=OFF -DENABLE_PCH=OFF \
                    -DCMAKE_DISABLE_PRECOMPILED_HEADERS=ON
 
-          # 8. GLOBAL CLEANUP
+          # 7. BUILD SYSTEM PATCHING
+          # Remove Mac-specific flags that Clang hates on iOS
           find . -name "flags.make" -exec sed -i '' 's/-x objective-c++/ /g' {} +
           find . -name "flags.make" -exec sed -i '' 's/-include-pch [^ ]*//g' {} +
           find . -name "flags.make" -exec sed -i '' 's/-mfpmath=sse//g' {} +
+          find . -name "flags.make" -exec sed -i '' 's/-msse[^ ]*//g' {} +
           
-          # 9. Start Build
+          # 8. START BUILD
           cmake --build . --config Release -- -j $(sysctl -n hw.logicalcpu)
