@@ -52,8 +52,7 @@ jobs:
           export LC_CTYPE=C
           export LANG=C
           
-          # 2. THE MODERN ZLIB BYPASS (Fixing CMake 3.5 requirement)
-          # We set the version to 3.10 to be safe and satisfy all warnings
+          # 2. THE ZLIB BYPASS (Keeping the fix that worked)
           if [ -d "3rdparty/libchdr/libchdr/deps/zlib-1.2.11" ]; then
             echo "cmake_minimum_required(VERSION 3.10)" > 3rdparty/libchdr/libchdr/deps/zlib-1.2.11/CMakeLists.txt
             echo "project(zlib_dummy)" >> 3rdparty/libchdr/libchdr/deps/zlib-1.2.11/CMakeLists.txt
@@ -97,20 +96,19 @@ jobs:
 
           cd build
           
-          # 6. CONFIGURE (Forcing System ZLIB & Setting Policy)
+          # 6. CONFIGURE (Targeting iOS ARM64)
           cmake .. -DCMAKE_BUILD_TYPE=Release \
-                   -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
                    -DUSE_CUBEB=OFF -DBUILD_CUBEB=OFF \
                    -DUSE_WXWIDGETS=OFF -DUSE_OPENGL=OFF -DUSE_VULKAN=ON \
-                   -DBUILD_LIBCHDR=OFF \
-                   -DZLIB_INCLUDE_DIR=/Applications/Xcode_16.4.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/usr/include \
-                   -DZLIB_LIBRARY=/Applications/Xcode_16.4.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/usr/lib/libz.tbd \
                    -DCMAKE_CXX_FLAGS="-I${GITHUB_WORKSPACE}/dummy_wx -include ${GITHUB_WORKSPACE}/dummy_wx/wx_bridge.h -DHAVE_FDOPEN=0" \
                    -DCMAKE_C_FLAGS="-I${GITHUB_WORKSPACE}/dummy_wx -DHAVE_FDOPEN=0" \
-                   -DPCSX2_USE_PCH=OFF -DCLANG_ENABLE_PCH=OFF -DENABLE_PCH=OFF \
-                   -DCMAKE_DISABLE_PRECOMPILED_HEADERS=ON
+                   -DPCSX2_USE_PCH=OFF -DCLANG_ENABLE_PCH=OFF -DENABLE_PCH=OFF
 
-          # 7. POST-CONFIGURE FLAG CLEANUP
+          # 7. THE SSE REMOVAL FIX (Fixing 'unknown FP unit sse')
+          # This will find all generated build files and strip any reference to SSE/Intel instructions
+          echo "Stripping Intel-specific flags from build files..."
+          find . -name "*.make" -exec sed -i '' 's/-mfpmath=sse//g' {} +
+          find . -name "*.make" -exec sed -i '' 's/-msse[^ ]*//g' {} +
           find . -name "flags.make" -exec sed -i '' 's/-DwxString=std::string//g' {} +
           
           # 8. START BUILD
