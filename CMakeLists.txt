@@ -1,5 +1,6 @@
-# Project Name
+cmake_minimum_required(VERSION 3.15)
 project(Pcsx2)
+
 if(APPLE)
     # 1. Architecture Settings
     set(CMAKE_OSX_ARCHITECTURES "arm64" CACHE STRING "" FORCE)
@@ -11,17 +12,11 @@ if(APPLE)
     add_compile_definitions(HAVE_FDOPEN=1) # Fix for zlib/iOS stdio conflict
     
     # Force bypass any Intel intrinsics in the source code
-    add_compile_definitions(__SSE__=0)
-    add_compile_definitions(__SSE2__=0)
-    add_compile_definitions(__SSE3__=0)
-    add_compile_definitions(__SSE4_1__=0)
-    add_compile_definitions(__AVX__=0)
-    add_compile_definitions(__AVX2__=0)
+    add_compile_definitions(__SSE__=0 __SSE2__=0 __SSE3__=0 __SSE4_1__=0 __AVX__=0 __AVX2__=0)
     
     # 3. Suppress wxWidgets Redefinitions (Fix for 31% error)
     # We force the compiler to treat wxString as a standard string to bypass UI dependencies
-    add_compile_definitions(WXSTRING_DEFINED)
-    add_compile_definitions(wxString=std::string)
+    add_compile_definitions(WXSTRING_DEFINED wxString=std::string)
     
     # 4. Compiler Flags - Ignore warnings and set target
     set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -w")
@@ -57,30 +52,17 @@ if(APPLE)
     
     message(STATUS "Build target set to iOS ARM64 - Audio/SSE forced OFF")
 endif()
-cmake_minimum_required(VERSION 3.10...3.17)
 
-# Force iOS and Apple definitions
+# top-level settings
 set(TOP_CMAKE_WAS_SOURCED TRUE)
 set(CMAKE_CXX_VISIBILITY_PRESET hidden)
 set(CMAKE_C_VISIBILITY_PRESET hidden)
-set(IOS TRUE)
-set(APPLE TRUE)
 
 # set module path
 set(CMAKE_MODULE_PATH ${CMAKE_SOURCE_DIR}/cmake)
 
 # include some generic functions
 include(Pcsx2Utils)
-
-# Bypassing the OS check which doesn't support iOS by default
-# detectOperatingSystem() 
-
-# Set OS manually to bypass restrictions
-set(OPERATING_SYSTEM "linux")
-set(LINUX TRUE)
-
-# Skip strict compiler version check for now
-# check_compiler_version("7.0" "7.0")
 
 #-------------------------------------------------------------------------------
 # Include specific module
@@ -94,10 +76,10 @@ get_git_version_info()
 write_svnrev_h()
 
 if(NOT NO_TRANSLATION AND NOT PCSX2_CORE)
-	# make the translation
-	if(EXISTS "${CMAKE_SOURCE_DIR}/locales")
-		add_subdirectory(locales)
-	endif()
+    # make the translation
+    if(EXISTS "${CMAKE_SOURCE_DIR}/locales")
+        add_subdirectory(locales)
+    endif()
 endif()
 
 # make common
@@ -107,42 +89,42 @@ add_subdirectory(common)
 add_subdirectory(pcsx2)
 
 if (QT_BUILD)
-	add_subdirectory(pcsx2-qt)
+    add_subdirectory(pcsx2-qt)
 endif()
 
 # tests
 if(ACTUALLY_ENABLE_TESTS)
-	set(gtest_force_shared_crt ON CACHE BOOL "" FORCE)
-	add_subdirectory(3rdparty/gtest EXCLUDE_FROM_ALL)
-	#add_subdirectory(tests/ctest)
+    set(gtest_force_shared_crt ON CACHE BOOL "" FORCE)
+    add_subdirectory(3rdparty/gtest EXCLUDE_FROM_ALL)
+    #add_subdirectory(tests/ctest)
 endif()
 
 #-------------------------------------------------------------------------------
 
 # Install some files to ease package creation
 if(PACKAGE_MODE)
-	INSTALL(DIRECTORY "${CMAKE_SOURCE_DIR}/bin/resources" DESTINATION "${CMAKE_INSTALL_DATADIR}/PCSX2")
+    INSTALL(DIRECTORY "${CMAKE_SOURCE_DIR}/bin/resources" DESTINATION "${CMAKE_INSTALL_DATADIR}/PCSX2")
 
-	# set categories depending on system/distribution in pcsx2.desktop
-	if(openSUSE)
-		set(PCSX2_MENU_CATEGORIES "System;Emulator;")
-	else()
-		set(PCSX2_MENU_CATEGORIES "Game;Emulator;")
-	endif()
-	configure_file("${CMAKE_SOURCE_DIR}/linux_various/PCSX2.desktop.in" "${CMAKE_BINARY_DIR}/linux_various/PCSX2.desktop" @ONLY)
+    # set categories depending on system/distribution in pcsx2.desktop
+    if(openSUSE)
+        set(PCSX2_MENU_CATEGORIES "System;Emulator;")
+    else()
+        set(PCSX2_MENU_CATEGORIES "Game;Emulator;")
+    endif()
+    configure_file("${CMAKE_SOURCE_DIR}/linux_various/PCSX2.desktop.in" "${CMAKE_BINARY_DIR}/linux_various/PCSX2.desktop" @ONLY)
 
-	INSTALL(FILES "${CMAKE_BINARY_DIR}/linux_various/PCSX2.desktop" DESTINATION "${CMAKE_INSTALL_DATAROOTDIR}/applications")
-	INSTALL(FILES "${CMAKE_SOURCE_DIR}/linux_various/PCSX2.xpm"     DESTINATION "${CMAKE_INSTALL_DATAROOTDIR}/pixmaps")
-	INSTALL(FILES "${CMAKE_SOURCE_DIR}/bin/docs/PCSX2_FAQ.pdf"      DESTINATION "${CMAKE_INSTALL_DOCDIR}")
-	INSTALL(FILES "${CMAKE_SOURCE_DIR}/bin/docs/Configuration_Guide.pdf"   DESTINATION "${CMAKE_INSTALL_DOCDIR}")
-	INSTALL(FILES "${CMAKE_SOURCE_DIR}/bin/docs/PCSX2.1"            DESTINATION "${CMAKE_INSTALL_MANDIR}/man1")
-	if(NOT DISABLE_PCSX2_WRAPPER)
-		INSTALL(FILES "${CMAKE_SOURCE_DIR}/linux_various/PCSX2-linux.sh"          DESTINATION "${CMAKE_INSTALL_BINDIR}")
-	endif()
+    INSTALL(FILES "${CMAKE_BINARY_DIR}/linux_various/PCSX2.desktop" DESTINATION "${CMAKE_INSTALL_DATAROOTDIR}/applications")
+    INSTALL(FILES "${CMAKE_SOURCE_DIR}/linux_various/PCSX2.xpm"     DESTINATION "${CMAKE_INSTALL_DATAROOTDIR}/pixmaps")
+    INSTALL(FILES "${CMAKE_SOURCE_DIR}/bin/docs/PCSX2_FAQ.pdf"      DESTINATION "${CMAKE_INSTALL_DOCDIR}")
+    INSTALL(FILES "${CMAKE_SOURCE_DIR}/bin/docs/Configuration_Guide.pdf"   DESTINATION "${CMAKE_INSTALL_DOCDIR}")
+    INSTALL(FILES "${CMAKE_SOURCE_DIR}/bin/docs/PCSX2.1"            DESTINATION "${CMAKE_INSTALL_MANDIR}/man1")
+    if(NOT DISABLE_PCSX2_WRAPPER)
+        INSTALL(FILES "${CMAKE_SOURCE_DIR}/linux_various/PCSX2-linux.sh"          DESTINATION "${CMAKE_INSTALL_BINDIR}")
+    endif()
 
 else()
-	if(NOT DISABLE_PCSX2_WRAPPER)
-		# special case to avoid having linux files in windows
-		INSTALL(FILES "${CMAKE_SOURCE_DIR}/linux_various/PCSX2-linux.sh"          DESTINATION "${CMAKE_SOURCE_DIR}/bin")
-	endif()
+    if(NOT DISABLE_PCSX2_WRAPPER)
+        # special case to avoid having linux files in windows
+        INSTALL(FILES "${CMAKE_SOURCE_DIR}/linux_various/PCSX2-linux.sh"          DESTINATION "${CMAKE_SOURCE_DIR}/bin")
+    endif()
 endif()
