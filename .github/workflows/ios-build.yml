@@ -44,22 +44,22 @@ jobs:
 
       - name: Build Core
         run: |
-          # 1. Environment Setup
+          # 1. Workspace Cleanup
           rm -rf build && mkdir build
           mkdir -p dummy_wx/wx
           
-          # 2. Critical Patch for zlib (Fixing the 20% hang)
-          # Remove conflicting fdopen declarations directly from source
-          echo "Patching zlib source to bypass iOS stdio conflicts..."
-          sed -i '' '/extern.*fdopen/d' 3rdparty/libchdr/libchdr/deps/zlib-1.2.11/zutil.c
-          sed -i '' 's/\bfdopen\b/zlib_fdopen/g' 3rdparty/libchdr/libchdr/deps/zlib-1.2.11/zutil.c
-          sed -i '' 's/\bfdopen\b/zlib_fdopen/g' 3rdparty/libchdr/libchdr/deps/zlib-1.2.11/zutil.h
-
-          # 3. Disable macOS-specific Graphics files (Fixing the 43% hang)
+          # 2. THE ULTIMATE ZLIB FIX (Anti-20% Error)
+          # We force rename fdopen to a unique name in the entire zlib source
+          echo "Renaming fdopen in zlib to prevent iOS system conflicts..."
+          find 3rdparty/libchdr/libchdr/deps/zlib-1.2.11 -type f \( -name "*.c" -o -name "*.h" \) -exec sed -i '' 's/\bfdopen\b/zlib_fdopen_ios/g' {} +
+          
+          # 3. Disable macOS Graphics Frameworks (Fixing the 43% hang)
           echo "// Empty" > common/GL/ContextAGL.mm
           echo "// Empty" > common/GL/ContextAGL.h
+          echo "// Empty" > 3rdparty/cubeb/src/cubeb_resampler.cpp
+          echo "// Empty" > 3rdparty/cubeb/src/cubeb_audiounit.cpp
 
-          # 4. Create the Ultimate Mock Bridge Header
+          # 4. Create Mock Bridge Header
           cat <<EOF > dummy_wx/wx_bridge.h
           #pragma once
           #include <string>
@@ -88,27 +88,27 @@ jobs:
 
           cd build
           
-          # 5. Configure CMake with iOS-safe flags
+          # 5. Configure with strict PCH disabling
           cmake .. -DCMAKE_BUILD_TYPE=Release \
                    -DUSE_CUBEB=OFF -DBUILD_CUBEB=OFF \
                    -DUSE_WXWIDGETS=OFF -DUSE_OPENGL=OFF \
                    -DHAVE_FDOPEN=0 -DNO_FDOPEN=1 \
                    -DPCSX2_USE_PCH=OFF -DCLANG_ENABLE_PCH=OFF
 
-          # 6. Post-Configure: Force-strip PCH and SSE flags
-          echo "Deep cleaning build system from incompatible flags..."
+          # 6. Build System Surgery
+          # Remove PCH and SSE flags from every single makefile
           find . -name "*.make" -exec sed -i '' 's/-include-pch [^ ]*//g' {} +
           find . -name "flags.make" -exec sed -i '' 's/-include-pch [^ ]*//g' {} +
           find . -name "*.make" -exec sed -i '' 's/-mfpmath=sse//g' {} +
           find . -name "flags.make" -exec sed -i '' 's/-mfpmath=sse//g' {} +
           
-          # Remove ContextAGL from the link list manually
+          # Skip the macOS-only object files
           find . -name "build.make" -exec sed -i '' 's/ContextAGL.mm.o//g' {} +
 
-          # 7. Targeted Header Injection
+          # 7. Targeted Bridge Injection
           if [ -d "common/CMakeFiles/common.dir" ]; then
             sed -i '' "s|CXX_FLAGS = |CXX_FLAGS = -include ${GITHUB_WORKSPACE}/dummy_wx/wx_bridge.h |" common/CMakeFiles/common.dir/flags.make
           fi
 
-          # 8. Start the Compilation
+          # 8. Start Build
           cmake --build . --config Release -- -j $(sysctl -n hw.logicalcpu)
