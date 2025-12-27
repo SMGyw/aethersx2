@@ -44,20 +44,20 @@ jobs:
 
       - name: Build Core
         run: |
-          # 1. Environment Prep
+          # 1. Workspace Cleanup
           rm -rf build && mkdir build
           mkdir -p dummy_wx/wx
           export LC_CTYPE=C
           export LANG=C
           
-          # 2. Hard Patch Cubeb & macOS Files (Fixing 30% and 43%)
-          # We empty these files to prevent the compiler from building desktop-specific audio/video code
-          echo "// Empty" > 3rdparty/cubeb/src/cubeb_resampler.cpp
-          echo "// Empty" > 3rdparty/cubeb/src/cubeb_audiounit.cpp
-          echo "// Empty" > common/GL/ContextAGL.mm
-          echo "// Empty" > common/GL/ContextAGL.h
+          # 2. Neutralize Desktop Artifacts (Keep files, but empty them)
+          # We empty these so the compiler creates an empty .o file, satisfying the linker/archiver
+          echo "// Empty File" > 3rdparty/cubeb/src/cubeb_resampler.cpp
+          echo "// Empty File" > 3rdparty/cubeb/src/cubeb_audiounit.cpp
+          echo "// Empty File" > common/GL/ContextAGL.mm
+          echo "// Empty File" > common/GL/ContextAGL.h
 
-          # 3. Create Mock Bridge Header (Fixing 32%)
+          # 3. Create Mock Bridge Header (For wxWidgets compatibility)
           cat <<EOF > dummy_wx/wx_bridge.h
           #pragma once
           #include <string>
@@ -86,7 +86,7 @@ jobs:
 
           cd build
           
-          # 4. Configure with specialized iOS audio/system flags
+          # 4. Configure with absolute PCH and Audio disabling
           cmake .. -DCMAKE_BUILD_TYPE=Release \
                    -DUSE_CUBEB=OFF -DBUILD_CUBEB=OFF \
                    -DUSE_WXWIDGETS=OFF -DUSE_OPENGL=OFF \
@@ -94,21 +94,18 @@ jobs:
                    -DCMAKE_CXX_FLAGS="-DHAVE_FDOPEN=0 -Dfdopen=z_ios_fdopen" \
                    -DPCSX2_USE_PCH=OFF -DCLANG_ENABLE_PCH=OFF -DENABLE_PCH=OFF
 
-          # 5. Build System Post-Patching
-          # Remove PCH and Intel-specific flags from generated files
+          # 5. Build System Post-Patching (Nuclear Clean)
+          # We STOP deleting files from build.make here so 'ar' can find the empty objects
+          echo "Cleaning incompatible flags and PCH references..."
           find . -name "*.make" -exec sed -i '' 's/-include-pch [^ ]*//g' {} +
           find . -name "flags.make" -exec sed -i '' 's/-include-pch [^ ]*//g' {} +
           find . -name "build.make" -exec sed -i '' 's/cmake_pch.hxx.pch//g' {} +
           find . -name "flags.make" -exec sed -i '' 's/-mfpmath=sse//g' {} +
-          
-          # Force skip compiled objects for cubeb and macOS
-          find . -name "build.make" -exec sed -i '' 's/cubeb_resampler.cpp.o//g' {} +
-          find . -name "build.make" -exec sed -i '' 's/ContextAGL.mm.o//g' {} +
 
-          # 6. Bridge Injection for common module
+          # 6. Bridge Injection
           if [ -d "common/CMakeFiles/common.dir" ]; then
             sed -i '' "s|CXX_FLAGS = |CXX_FLAGS = -include ${GITHUB_WORKSPACE}/dummy_wx/wx_bridge.h |" common/CMakeFiles/common.dir/flags.make
           fi
 
-          # 7. Start Compilation
+          # 7. Start Build
           cmake --build . --config Release -- -j $(sysctl -n hw.logicalcpu)
