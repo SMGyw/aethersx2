@@ -44,45 +44,38 @@ jobs:
 
       - name: Build Core
         run: |
-          # 1. CLEAN RESET
           git checkout .
           git clean -fd
           rm -rf build && mkdir build
           mkdir -p dummy_wx/wx
           
-          # 2. FIX LOCALE
           export LANG=C
           export LC_ALL=C
           
-          # 3. REFINED SOURCE CLEANUP
-          # بدلاً من استبدال شامل، سنستهدف فقط الكلمات التي تسبب تكرار الدوال
-          # وسنقوم بحذف سطر typedef char char الذي نتج عن الخطأ السابق
-          find common -type f \( -name "*.h" -o -name "*.cpp" \) -exec sed -i '' 's/const wxChar\*/const char\*/g' {} +
-          find common -type f \( -name "*.h" -o -name "*.cpp" \) -exec sed -i '' 's/typedef char char;//g' {} +
+          # Fix wide string literal conflicts in SafeArray.h
+          find common -type f -name "SafeArray.h" -exec sed -i '' 's/L"Unnamed"/"Unnamed"/g' {} +
           
-          # تعطيل الدوال المكررة في ملفات الكونسول والمساعدات
-          # نستخدم التعطيل عن طريق تحويلها إلى تعليقات
-          sed -i '' 's/bool FormatV(const char\* fmt, va_list args) const;/\/\/DUP/2' common/Console.h
-          sed -i '' 's/bool WriteLn(ConsoleColors color, const char\* fmt, ...) const;/\/\/DUP/2' common/Console.h
-          sed -i '' 's/bool WriteLn(const char\* fmt, ...) const;/\/\/DUP/2' common/Console.h
-          sed -i '' 's/bool Error(const char\* fmt, ...) const;/\/\/DUP/2' common/Console.h
-          sed -i '' 's/bool Warning(const char\* fmt, ...) const;/\/\/DUP/2' common/Console.h
+          # Standardize charBuffer naming
+          find common -type f \( -name "*.h" -o -name "*.cpp" \) -exec sed -i '' 's/wxCharBuffer/charBuffer/g' {} +
           
-          # تعطيل تعريفات wxString الأصلية
-          find . -type f \( -name "Pcsx2Defs.h" -o -name "Pcsx2Types.h" \) -exec sed -i '' 's/typedef std::string wxString;/\/\/typedef std::string wxString;/g' {} +
-          find . -type f \( -name "Pcsx2Defs.h" -o -name "Pcsx2Types.h" \) -exec sed -i '' 's/class wxString;/\/\/class wxString;/g' {} +
-          
-          # 4. NUCLEAR OPTION FOR CUBEB
+          # Remove duplicate function declarations in Console.h and StringHelpers.h
+          sed -i '' '118,122d' common/Console.h
+          sed -i '' '158,162d' common/Console.h
+          sed -i '' '172,175d' common/StringHelpers.h
+          sed -i '' '193,196d' common/StringHelpers.h
+          sed -i '' '221,224d' common/StringHelpers.h
+
+          # Mock cubeb dependencies
           echo "add_library(cubeb INTERFACE)" > 3rdparty/cubeb/CMakeLists.txt
           echo "add_library(cubeb_resampler INTERFACE)" >> 3rdparty/cubeb/CMakeLists.txt
           
-          # 5. FIX ZLIB CONFLICT
+          # Fix zlib fdopen conflict
           ZLIB_ZUTIL="3rdparty/libchdr/libchdr/deps/zlib-1.2.11/zutil.h"
           if [ -f "$ZLIB_ZUTIL" ]; then
             sed -i '' 's/#        define fdopen(fd,mode) NULL/\/\/#define fdopen/g' "$ZLIB_ZUTIL"
           fi
 
-          # 6. THE MASTER BRIDGE (V3 - More Robust)
+          # Create Master Bridge Header (Pure English)
           cat <<EOF > dummy_wx/wx_bridge.h
           #ifndef WX_BRIDGE_H
           #define WX_BRIDGE_H
@@ -92,13 +85,20 @@ jobs:
           #include <cstring>
           #include <cstdio>
 
-          // تعريف الأنواع المفقودة
           typedef int wxStringTokenizerMode;
           #define wxTOKEN_RET_EMPTY_ALL 0
           class wxStringTokenizer { public: wxStringTokenizer(...) {} bool HasMoreTokens() const { return false; } std::string GetNextToken() { return ""; } };
           struct wxPoint { int x, y; };
           struct wxSize { int x, y; };
-          typedef std::string charBuffer; // حل مشكلة unknown type name 'charBuffer'
+
+          class charBuffer {
+          public:
+              std::string data_str;
+              charBuffer() {}
+              charBuffer(const std::string& s) : data_str(s) {}
+              operator const char*() const { return data_str.c_str(); }
+              const char* data() const { return data_str.c_str(); }
+          };
 
           class FakeWxString : public std::string {
           public:
@@ -110,7 +110,7 @@ jobs:
               }
               operator const char*() const { return c_str(); }
               const char* wx_str() const { return c_str(); }
-              std::string ToUTF8() const { return *this; } // حل مشكلة ToUTF8
+              charBuffer ToUTF8() const { return charBuffer(*this); }
               bool Empty() const { return empty(); }
               static FakeWxString Format(const char* fmt, ...) {
                   char buf[2048]; va_list args; va_start(args, fmt);
@@ -130,14 +130,12 @@ jobs:
           #endif
           EOF
 
-          # 7. MOCK WX HEADERS
           for h in tokenzr.h string.h log.h setup.h intl.h crt.h msgdlg.h filefn.h config.h thread.h chartype.h buffer.h; do
             echo "#include \"../wx_bridge.h\"" > dummy_wx/wx/$h
           done
 
           cd build
           
-          # 8. CONFIGURE
           cmake .. -DCMAKE_BUILD_TYPE=Release \
                    -DCMAKE_SYSTEM_NAME=Darwin \
                    -DCMAKE_SYSTEM_PROCESSOR=arm64 \
@@ -147,9 +145,7 @@ jobs:
                    -DCMAKE_CXX_FLAGS="-I${GITHUB_WORKSPACE}/dummy_wx -include ${GITHUB_WORKSPACE}/dummy_wx/wx_bridge.h -DwxString=FakeWxString" \
                    -DCMAKE_C_FLAGS="-I${GITHUB_WORKSPACE}/dummy_wx"
 
-          # 9. HARD STRIP SSE
           find . -name "flags.make" -exec sed -i '' 's/-mfpmath=sse//g' {} +
           find . -name "flags.make" -exec sed -i '' 's/-msse[^ ]*//g' {} +
 
-          # 10. START BUILD
           cmake --build . --config Release -- -j $(sysctl -n hw.logicalcpu)
