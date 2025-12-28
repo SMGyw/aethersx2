@@ -42,7 +42,7 @@ jobs:
             -DPCSX2_CORE=ON \
             -DENABLE_SETCAP=OFF
 
-      - name: Build Core (Targeted Zlib Destruction)
+      - name: Build Core (Final Zlib Override)
         run: |
           git checkout .
           git clean -fd
@@ -52,29 +52,31 @@ jobs:
           export LANG=C
           export LC_ALL=C
           
-          # 1. THE ULTIMATE ZLIB PATCH
-          # We will target the exact line in the exact file that keeps failing
+          # 1. PHYSICAL DELETION OF CONFLICTING MACRO
+          # We search for the exact line in zlib and delete it physically from the file
+          # This is more reliable than 'sed' replacement
           Z_FILE="3rdparty/libchdr/libchdr/deps/zlib-1.2.11/zutil.h"
           if [ -f "$Z_FILE" ]; then
-            # Comment out the specific line 140 and any other fdopen definition
-            sed -i '' 's/#\s*define\s*fdopen/\/\/#define fdopen/g' "$Z_FILE"
-            # Explicitly add HAVE_FDOPEN to the top of the file
-            echo "#define HAVE_FDOPEN 1\n$(cat $Z_FILE)" > "$Z_FILE"
+            grep -v "define fdopen" "$Z_FILE" > "${Z_FILE}.tmp" && mv "${Z_FILE}.tmp" "$Z_FILE"
+            echo "Successfully purged fdopen macro from zlib."
           fi
 
-          # 2. SOURCE PRE-PROCESSING
-          # Convert Wide-Strings (L"...") to prevent operator+ errors later
+          # 2. SOURCE CODE PRE-PROCESSING
+          # Fix Wide String issues and common header conflicts
           find common -type f \( -name "*.h" -o -name "*.cpp" -o -name "*.mm" -o -name "*.inl" \) -exec sed -i '' 's/L\(".*"\)/\1/g' {} +
-          
+          find common -type f -name "Pcsx2Defs.h" -exec sed -i '' '/typedef std::string wxString;/d' {} +
+
           # 3. ROBUST BRIDGE HEADER
           cat <<EOF > dummy_wx/wx_bridge.h
           #ifndef WX_BRIDGE_H
           #define WX_BRIDGE_H
           #include <stdio.h>
+          #include <string.h>
           #include <string>
           #include <vector>
           #include <stdarg.h>
 
+          // Ensure fdopen is never redefined
           #ifdef fdopen
           #undef fdopen
           #endif
@@ -83,9 +85,9 @@ jobs:
           #define _T(x) x
           #define wxT(x) x
           #define _(x) x
+          #define __TFILE__ __FILE__
 
-          class FakeWxString : public std::string {
-          public:
+          struct FakeWxString : public std::string {
               using std::string::string;
               FakeWxString(const wchar_t* ws) : std::string("") {}
               const char* wx_str() const { return c_str(); }
@@ -97,18 +99,10 @@ jobs:
                   return FakeWxString(b);
               }
           };
-
           #define wxString FakeWxString
           #define wxEmptyString FakeWxString("")
           typedef std::vector<FakeWxString> wxArrayString;
           inline const char* pxGetTranslation(const char* m) { return m; }
-          
-          struct wxCharBuffer {
-              std::string s;
-              wxCharBuffer(const std::string& str) : s(str) {}
-              const char* data() const { return s.c_str(); }
-              operator const char*() const { return s.c_str(); }
-          };
           #endif
           EOF
 
@@ -117,7 +111,7 @@ jobs:
           done
 
           cd build
-          # Fix CMake files to remove SSE (already proven to work for yaml-cpp)
+          # Remove SSE flags globally from CMake files before generation
           find .. -name "CMakeLists.txt" -exec sed -i '' 's/-mfpmath=sse//g' {} +
           find .. -name "*.cmake" -exec sed -i '' 's/-mfpmath=sse//g' {} +
 
@@ -131,7 +125,7 @@ jobs:
                    -DCMAKE_CXX_FLAGS="-I${GITHUB_WORKSPACE}/dummy_wx -include ${GITHUB_WORKSPACE}/dummy_wx/wx_bridge.h -Wno-everything" \
                    -DCMAKE_C_FLAGS="-DHAVE_FDOPEN -Wno-everything"
 
-          # Final cleaning of generated flags to ensure no SSE leaks
+          # Final cleaning of generated build files
           find . -name "flags.make" -exec sed -i '' 's/-mfpmath=sse//g' {} +
 
           cmake --build . --config Release --verbose -- -j $(sysctl -n hw.logicalcpu)
