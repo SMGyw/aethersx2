@@ -52,10 +52,11 @@ jobs:
           export LANG=C
           export LC_ALL=C
           
-          # 1. FIX ZLIB FDOPEN CONFLICT (Critical for macOS)
-          # This removes the problematic macro that redefines fdopen to NULL
-          find 3rdparty/libchdr -type f -name "zutil.h" -exec sed -i '' 's/#\s*define fdopen(fd,mode) NULL/\/\/#define fdopen/g' {} +
-          find 3rdparty/libchdr -type f -name "gzguts.h" -exec sed -i '' '/#\s*define _POSIX_SOURCE/d' {} +
+          # 1. AGGRESSIVE ZLIB FIX
+          # Search for any zutil.h and gzguts.h in the entire 3rdparty folder and kill the fdopen macro
+          find 3rdparty -name "zutil.h" -exec sed -i '' '/#\s*define\s*fdopen/d' {} +
+          find 3rdparty -name "gzguts.h" -exec sed -i '' '/#\s*define\s*fdopen/d' {} +
+          find 3rdparty -name "gzguts.h" -exec sed -i '' '/#\s*define\s*_POSIX_SOURCE/d' {} +
 
           # 2. REMOVE CONFLICTING TYPEDEFS IN SOURCE
           find common -type f -name "Pcsx2Defs.h" -exec sed -i '' '/typedef std::string wxString;/d' {} +
@@ -64,7 +65,7 @@ jobs:
           # 3. GLOBAL WIDE-STRING TO ASCII CONVERSION
           find common -type f \( -name "*.h" -o -name "*.cpp" -o -name "*.mm" \) -exec sed -i '' 's/L\(".*"\)/\1/g' {} +
           
-          # 4. FIX DUPLICATE DECLARATIONS
+          # 4. FIX DUPLICATE DECLARATIONS & SYNTAX
           find common -type f -name "StringHelpers.h" -exec sed -i '' '/const wxChar\* psz/d' {} +
           find common -type f -name "Console.h" -exec sed -i '' '/const wxChar\* fmt/d' {} +
           find common -type f -name "TraceLog.h" -exec sed -i '' '/const wxChar\* fmt/d' {} +
