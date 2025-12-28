@@ -52,27 +52,32 @@ jobs:
           export LANG=C
           export LC_ALL=C
           
-          # 1. FIX ZLIB (Targeting zutil.h line 140)
-          find 3rdparty -name "zutil.h" -exec sed -i '' '/#\s*define\s*fdopen/d' {} +
-          find . -name "zconf.h" -exec sh -c 'echo "#define HAVE_FDOPEN 1" >> $1' _ {} \;
+          # 1. TOTAL ZLIB SANITIZATION
+          # Find all zutil.h and gzguts.h files and forcibly comment out the fdopen macro
+          find 3rdparty -name "zutil.h" -exec sed -i '' 's/#\s*define\s*fdopen/\/\/#define fdopen/g' {} +
+          find 3rdparty -name "gzguts.h" -exec sed -i '' 's/#\s*define\s*fdopen/\/\/#define fdopen/g' {} +
+          
+          # Inject HAVE_FDOPEN directly into zconf.h to tell zlib the function is already there
+          find 3rdparty -name "zconf.h" -exec sh -c 'echo "\n#ifndef HAVE_FDOPEN\n#define HAVE_FDOPEN 1\n#endif" >> $1' _ {} \;
 
-          # 2. SOURCE CODE CLEANUP (Removing redundant typedefs and fixing macros)
+          # 2. SOURCE CODE PRE-PROCESSING
+          # Remove conflicting strings and types
           find common -type f -name "Pcsx2Defs.h" -exec sed -i '' '/typedef std::string wxString;/d' {} +
           find common -type f -name "Pcsx2Types.h" -exec sed -i '' '/class wxString;/d' {} +
           find common -type f -name "Dependencies.h" -exec sed -i '' '/pxGetTranslation/d' {} +
           
-          # Convert ALL wide strings L"..." to regular strings "..." to avoid operator+ errors
-          find common -type f \( -name "*.h" -o -name "*.cpp" -o -name "*.mm" -o -name "*.inl" \) -exec sed -i '' 's/L\(".*"\)/\1/g' {} +
+          # Convert Wide-Strings L"..." to regular "..." across the whole repo to avoid addition errors
+          find . -type f \( -name "*.h" -o -name "*.cpp" -o -name "*.mm" -o -name "*.inl" \) -exec sed -i '' 's/L\(".*"\)/\1/g' {} +
 
-          # 3. FIX DUPLICATE Write/WriteV declarations in StringHelpers.h
-          find common -name "StringHelpers.h" -exec sed -i '' '/const wxChar\* fmt/d' {} +
-          
-          # 4. MASTER BRIDGE HEADER (The complete fix for wxWidgets replacement)
+          # 3. MASTER BRIDGE HEADER
           cat <<EOF > dummy_wx/wx_bridge.h
           #ifndef WX_BRIDGE_H
           #define WX_BRIDGE_H
-
+          
           #include <stdio.h>
+          #include <string.h>
+          
+          // Undefine fdopen if it leaked from anywhere
           #ifdef fdopen
           #undef fdopen
           #endif
@@ -80,8 +85,6 @@ jobs:
           #include <string>
           #include <vector>
           #include <stdarg.h>
-          #include <cstring>
-          #include <iostream>
 
           typedef char wxChar;
           #define _T(x) x
@@ -144,6 +147,7 @@ jobs:
                    -DCMAKE_CXX_FLAGS="-I${GITHUB_WORKSPACE}/dummy_wx -include ${GITHUB_WORKSPACE}/dummy_wx/wx_bridge.h" \
                    -DCMAKE_C_FLAGS="-I${GITHUB_WORKSPACE}/dummy_wx -DHAVE_FDOPEN"
 
+          # Remove invalid SSE flags if CMake adds them
           find . -name "flags.make" -exec sed -i '' 's/-mfpmath=sse//g' {} +
           find . -name "flags.make" -exec sed -i '' 's/-msse[^ ]*//g' {} +
 
