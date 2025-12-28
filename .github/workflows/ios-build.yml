@@ -52,30 +52,30 @@ jobs:
           export LANG=C
           export LC_ALL=C
           
-          # Fix wide string literal conflicts in SafeArray.h
-          find common -type f -name "SafeArray.h" -exec sed -i '' 's/L"Unnamed"/"Unnamed"/g' {} +
+          # 1. REMOVE CONFLICTING TYPEDEFS IN SOURCE
+          # Remove 'typedef std::string wxString;' to avoid conflict with our bridge
+          find common -type f -name "Pcsx2Defs.h" -exec sed -i '' '/typedef std::string wxString;/d' {} +
+          find common -type f -name "Pcsx2Types.h" -exec sed -i '' '/class wxString;/d' {} +
           
-          # Standardize charBuffer naming
-          find common -type f \( -name "*.h" -o -name "*.cpp" \) -exec sed -i '' 's/wxCharBuffer/charBuffer/g' {} +
+          # 2. GLOBAL WIDE-STRING TO ASCII CONVERSION
+          # Converts L"text" to "text" across all common files
+          find common -type f \( -name "*.h" -o -name "*.cpp" -o -name "*.mm" \) -exec sed -i '' 's/L\(".*"\)/\1/g' {} +
           
-          # Remove duplicate function declarations in Console.h and StringHelpers.h
-          sed -i '' '118,122d' common/Console.h
-          sed -i '' '158,162d' common/Console.h
-          sed -i '' '172,175d' common/StringHelpers.h
-          sed -i '' '193,196d' common/StringHelpers.h
-          sed -i '' '221,224d' common/StringHelpers.h
+          # 3. FIX DUPLICATE DECLARATIONS (CLEANER METHOD)
+          # We remove the wxChar versions because wxChar is now just char
+          find common -type f -name "StringHelpers.h" -exec sed -i '' '/const wxChar\* psz/d' {} +
+          find common -type f -name "Console.h" -exec sed -i '' '/const wxChar\* fmt/d' {} +
+          find common -type f -name "TraceLog.h" -exec sed -i '' '/const wxChar\* fmt/d' {} +
 
-          # Mock cubeb dependencies
+          # 4. FIX STRINGHELPERS SYNTAX ERROR
+          # Ensure no stray braces after our deletions
+          find common -type f -name "StringHelpers.h" -exec sed -i '' 's/operator+=(const char\* psz);/operator+=(const char* psz) { return *this; }/g' {} +
+
+          # 5. MOCK CUBEB
           echo "add_library(cubeb INTERFACE)" > 3rdparty/cubeb/CMakeLists.txt
           echo "add_library(cubeb_resampler INTERFACE)" >> 3rdparty/cubeb/CMakeLists.txt
           
-          # Fix zlib fdopen conflict
-          ZLIB_ZUTIL="3rdparty/libchdr/libchdr/deps/zlib-1.2.11/zutil.h"
-          if [ -f "$ZLIB_ZUTIL" ]; then
-            sed -i '' 's/#        define fdopen(fd,mode) NULL/\/\/#define fdopen/g' "$ZLIB_ZUTIL"
-          fi
-
-          # Create Master Bridge Header (Pure English)
+          # 6. MASTER BRIDGE HEADER (V5 - IMPROVED CONVERSIONS)
           cat <<EOF > dummy_wx/wx_bridge.h
           #ifndef WX_BRIDGE_H
           #define WX_BRIDGE_H
@@ -105,13 +105,13 @@ jobs:
               FakeWxString() : std::string("") {}
               FakeWxString(const char* s) : std::string(s ? s : "") {}
               FakeWxString(const std::string& s) : std::string(s) {}
-              FakeWxString(const wchar_t* ws) : std::string("") {
-                  if (ws) { std::wstring w(ws); for (wchar_t x : w) this->push_back((char)x); }
-              }
+              FakeWxString(const wchar_t* ws) : std::string("") {} 
+              
               operator const char*() const { return c_str(); }
               const char* wx_str() const { return c_str(); }
               charBuffer ToUTF8() const { return charBuffer(*this); }
               bool Empty() const { return empty(); }
+              
               static FakeWxString Format(const char* fmt, ...) {
                   char buf[2048]; va_list args; va_start(args, fmt);
                   vsnprintf(buf, sizeof(buf), fmt, args); va_end(args);
@@ -119,14 +119,16 @@ jobs:
               }
           };
 
-          #undef wxString
           #define wxString FakeWxString
+          #define wxsFormat FakeWxString::Format
+          #define WX_STR(x) (x)
           typedef char wxChar;
           typedef std::vector<FakeWxString> wxArrayString;
           #define wxT(x) x
           #define _(x) x
           #define wxEmptyString FakeWxString("")
           #define wxLogMessage(...) 
+          #define pxGetTranslation(x) (x)
           #endif
           EOF
 
@@ -135,14 +137,13 @@ jobs:
           done
 
           cd build
-          
           cmake .. -DCMAKE_BUILD_TYPE=Release \
                    -DCMAKE_SYSTEM_NAME=Darwin \
                    -DCMAKE_SYSTEM_PROCESSOR=arm64 \
                    -DUSE_CUBEB=OFF -DBUILD_CUBEB=OFF \
                    -DUSE_WXWIDGETS=OFF -DUSE_OPENGL=OFF -DUSE_VULKAN=ON \
                    -DPCSX2_USE_PCH=OFF \
-                   -DCMAKE_CXX_FLAGS="-I${GITHUB_WORKSPACE}/dummy_wx -include ${GITHUB_WORKSPACE}/dummy_wx/wx_bridge.h -DwxString=FakeWxString" \
+                   -DCMAKE_CXX_FLAGS="-I${GITHUB_WORKSPACE}/dummy_wx -include ${GITHUB_WORKSPACE}/dummy_wx/wx_bridge.h" \
                    -DCMAKE_C_FLAGS="-I${GITHUB_WORKSPACE}/dummy_wx"
 
           find . -name "flags.make" -exec sed -i '' 's/-mfpmath=sse//g' {} +
