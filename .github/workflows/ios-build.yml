@@ -54,12 +54,16 @@ jobs:
           export LANG=C
           export LC_ALL=C
           
-          # 3. GLOBAL SOURCE CLEANUP (إزالة الوظائف المكررة)
-          # سنقوم بحذف أي وظيفة تستخدم wxChar لأن النسخة التي تستخدم char موجودة بالفعل وتكفي
-          find common -type f \( -name "*.h" -o -name "*.cpp" \) -exec sed -i '' '/const wxChar\*/d' {} +
-          find common -type f \( -name "*.h" -o -name "*.cpp" \) -exec sed -i '' '/wxChar /d' {} +
+          # 3. SMART SOURCE CLEANUP
+          # تحويل wxChar إلى char بدلاً من حذف الأسطر
+          find common -type f \( -name "*.h" -o -name "*.cpp" \) -exec sed -i '' 's/wxChar/char/g' {} +
           
-          # تعطيل تعريفات wxString الأصلية المتعارضة
+          # إزالة الوظائف المكررة التي تسبب redefinition (التي تأخذ char بعد التحويل)
+          # نستخدم sed لتعطيل النسخ المكررة في ملفات معينة
+          sed -i '' 's/FastFormatUnicode& Write(const char\* fmt, ...);/\/\/REMOVED/g' common/StringHelpers.h
+          sed -i '' 's/FastFormatUnicode& WriteV(const char\* fmt, va_list argptr);/\/\/REMOVED/g' common/StringHelpers.h
+          
+          # تعطيل تعريفات wxString الأصلية
           find . -type f \( -name "Pcsx2Defs.h" -o -name "Pcsx2Types.h" \) -exec sed -i '' 's/typedef std::string wxString;/\/\/typedef std::string wxString;/g' {} +
           find . -type f \( -name "Pcsx2Defs.h" -o -name "Pcsx2Types.h" \) -exec sed -i '' 's/class wxString;/\/\/class wxString;/g' {} +
           find . -type f -name "SafeArray.h" -exec sed -i '' 's/L"Unnamed"/"Unnamed"/g' {} +
@@ -74,7 +78,7 @@ jobs:
             sed -i '' 's/#        define fdopen(fd,mode) NULL/\/\/#define fdopen/g' "$ZLIB_ZUTIL"
           fi
 
-          # 6. THE MASTER BRIDGE (نسخة مبسطة جداً لتجنب التضارب)
+          # 6. THE MASTER BRIDGE (Simplified)
           cat <<EOF > dummy_wx/wx_bridge.h
           #ifndef WX_BRIDGE_H
           #define WX_BRIDGE_H
@@ -84,10 +88,9 @@ jobs:
           #include <cstring>
           #include <cstdio>
 
-          // تعريف الأنواع الأساسية المفقودة التي ظهرت في الخطأ
           typedef int wxStringTokenizerMode;
           #define wxTOKEN_RET_EMPTY_ALL 0
-          class wxStringTokenizer { public: wxStringTokenizer(int, int) {} };
+          class wxStringTokenizer { public: wxStringTokenizer(...) {} bool HasMoreTokens() const { return false; } };
           struct wxPoint { int x, y; };
           struct wxSize { int x, y; };
 
