@@ -50,30 +50,26 @@ jobs:
           rm -rf build && mkdir build
           mkdir -p dummy_wx/wx
           
-          # 2. FIX LOCALE FOR SED (This fixes "illegal byte sequence")
+          # 2. FIX LOCALE FOR SED
           export LANG=C
           export LC_ALL=C
           
-          # 3. FORCE DISABLE INTERNAL LIBRARIES
-          for lib in zlib-1.2.11 cubeb; do
-            dir="3rdparty/$lib"
-            [ "$lib" == "zlib-1.2.11" ] && dir="3rdparty/libchdr/libchdr/deps/zlib-1.2.11"
-            if [ -d "$dir" ]; then
-              echo "cmake_minimum_required(VERSION 3.10)" > $dir/CMakeLists.txt
-              echo "project(${lib}_dummy)" >> $dir/CMakeLists.txt
-              echo "add_library(${lib} INTERFACE)" >> $dir/CMakeLists.txt
-            fi
-          done
+          # 3. GLOBAL SOURCE CLEANUP (Solving Redeclaration & Types)
+          # We remove the duplicate wxChar versions because they conflict with char versions
+          find . -type f \( -name "StringHelpers.h" -o -name "Console.h" -o -name "SafeArray.h" \) -print0 | xargs -0 sed -i '' '/const wxChar\* fmt/d' || true
+          find . -type f \( -name "StringHelpers.h" -o -name "Console.h" -o -name "SafeArray.h" \) -print0 | xargs -0 sed -i '' '/const wxChar\* psz/d' || true
+          find . -type f \( -name "StringHelpers.h" -o -name "Console.h" -o -name "SafeArray.h" \) -print0 | xargs -0 sed -i '' '/const wxChar\* name/d' || true
+          
+          # Fix the L"Unnamed" issue by removing the L prefix in header files
+          find . -type f -name "SafeArray.h" -exec sed -i '' 's/L"Unnamed"/"Unnamed"/g' {} +
 
-          # 4. GLOBAL SOURCE CLEANUP (Using the fixed Locale)
-          find . -type f \( -name "*.h" -o -name "*.cpp" \) -print0 | xargs -0 sed -i '' '/typedef std::string wxString/d' || true
-          find . -type f \( -name "*.h" -o -name "*.cpp" \) -print0 | xargs -0 sed -i '' '/using wxString =/d' || true
-
-          # 5. PROXY BRIDGE HEADER
+          # 4. THE MASTER BRIDGE
           cat <<EOF > dummy_wx/wx_bridge.h
           #pragma once
           #include <string>
           #include <vector>
+          #include <stdarg.h>
+          #include <cstring>
 
           #ifndef WX_BRIDGE_INCLUDED
           #define WX_BRIDGE_INCLUDED
@@ -86,9 +82,11 @@ jobs:
               FakeWxString(const wchar_t* ws) : std::string("") {
                   if (ws) {
                       std::wstring w(ws);
-                      for (size_t i = 0; i < w.length(); ++i) this->push_back((char)w[i]);
+                      for (wchar_t x : w) this->push_back((char)x);
                   }
               }
+              // This fixes the strlen() and data() conversion errors
+              operator const char*() const { return c_str(); }
               const char* c_str() const { return std::string::c_str(); }
               std::string ToUTF8() const { return *this; }
               bool Empty() const { return empty(); }
@@ -100,6 +98,13 @@ jobs:
           typedef char wxChar;
           typedef wxString wxCharBuffer;
           typedef std::vector<wxString> wxArrayString;
+          
+          class wxStringTokenizer {
+          public:
+              wxStringTokenizer(const wxString& s, const wxString& d) {}
+              bool HasMoreTokens() const { return false; }
+              wxString GetNextToken() { return wxString(""); }
+          };
           typedef int wxStringTokenizerMode;
 
           #define wxT(x) x
@@ -113,17 +118,20 @@ jobs:
           class wxThread { public: virtual ~wxThread() {} virtual void* Entry() = 0; };
           class wxMutex { public: void Lock() {} void Unlock() {} };
           class wxCriticalSection { public: void Enter() {} void Leave() {} };
+          
+          struct wxPoint { int x, y; };
+          struct wxSize { int x, y; };
           #endif
           EOF
 
-          # 6. MOCK WX HEADERS
+          # 5. MOCK WX HEADERS
           for h in tokenzr.h string.h log.h setup.h intl.h crt.h msgdlg.h filefn.h config.h thread.h chartype.h buffer.h; do
             echo "#include \"../wx_bridge.h\"" > dummy_wx/wx/$h
           done
 
           cd build
           
-          # 7. CONFIGURE
+          # 6. CONFIGURE
           cmake .. -DCMAKE_BUILD_TYPE=Release \
                    -DUSE_CUBEB=OFF -DBUILD_CUBEB=OFF \
                    -DUSE_WXWIDGETS=OFF -DUSE_OPENGL=OFF -DUSE_VULKAN=ON \
@@ -131,10 +139,10 @@ jobs:
                    -DCMAKE_C_FLAGS="-I${GITHUB_WORKSPACE}/dummy_wx" \
                    -DPCSX2_USE_PCH=OFF
 
-          # 8. STRIP INTEL FLAGS & CLEAN MACROS
+          # 7. STRIP FLAGS & CLEAN MACROS
           find . -name "*.make" -exec sed -i '' 's/-mfpmath=sse//g' {} +
           find . -name "*.make" -exec sed -i '' 's/-msse[^ ]*//g' {} +
           find . -name "flags.make" -exec sed -i '' 's/-DwxString=std::string//g' {} +
           
-          # 9. START BUILD
+          # 8. START BUILD
           cmake --build . --config Release -- -j $(sysctl -n hw.logicalcpu)
