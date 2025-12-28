@@ -50,29 +50,30 @@ jobs:
           rm -rf build && mkdir build
           mkdir -p dummy_wx/wx
           
-          # 2. FIX LOCALE FOR SED
+          # 2. FIX LOCALE
           export LANG=C
           export LC_ALL=C
           
-          # 3. GLOBAL SOURCE CLEANUP (Solving Redeclaration & Types)
-          # We remove the duplicate wxChar versions because they conflict with char versions
+          # 3. GLOBAL SOURCE CLEANUP
           find . -type f \( -name "StringHelpers.h" -o -name "Console.h" -o -name "SafeArray.h" \) -print0 | xargs -0 sed -i '' '/const wxChar\* fmt/d' || true
           find . -type f \( -name "StringHelpers.h" -o -name "Console.h" -o -name "SafeArray.h" \) -print0 | xargs -0 sed -i '' '/const wxChar\* psz/d' || true
           find . -type f \( -name "StringHelpers.h" -o -name "Console.h" -o -name "SafeArray.h" \) -print0 | xargs -0 sed -i '' '/const wxChar\* name/d' || true
-          
-          # Fix the L"Unnamed" issue by removing the L prefix in header files
           find . -type f -name "SafeArray.h" -exec sed -i '' 's/L"Unnamed"/"Unnamed"/g' {} +
 
-          # 4. THE MASTER BRIDGE
+          # 4. FIX ZLIB CONFLICT (The fdopen error)
+          # We will force the bundled zlib to not redefine fdopen
+          ZLIB_ZUTIL="3rdparty/libchdr/libchdr/deps/zlib-1.2.11/zutil.h"
+          if [ -f "$ZLIB_ZUTIL" ]; then
+            sed -i '' 's/#        define fdopen(fd,mode) NULL/\/\/#define fdopen/g' "$ZLIB_ZUTIL"
+          fi
+
+          # 5. THE MASTER BRIDGE
           cat <<EOF > dummy_wx/wx_bridge.h
           #pragma once
           #include <string>
           #include <vector>
           #include <stdarg.h>
           #include <cstring>
-
-          #ifndef WX_BRIDGE_INCLUDED
-          #define WX_BRIDGE_INCLUDED
 
           class FakeWxString : public std::string {
           public:
@@ -85,7 +86,6 @@ jobs:
                       for (wchar_t x : w) this->push_back((char)x);
                   }
               }
-              // This fixes the strlen() and data() conversion errors
               operator const char*() const { return c_str(); }
               const char* c_str() const { return std::string::c_str(); }
               std::string ToUTF8() const { return *this; }
@@ -94,11 +94,9 @@ jobs:
 
           #undef wxString
           #define wxString FakeWxString
-
           typedef char wxChar;
           typedef wxString wxCharBuffer;
           typedef std::vector<wxString> wxArrayString;
-          
           class wxStringTokenizer {
           public:
               wxStringTokenizer(const wxString& s, const wxString& d) {}
@@ -106,7 +104,6 @@ jobs:
               wxString GetNextToken() { return wxString(""); }
           };
           typedef int wxStringTokenizerMode;
-
           #define wxT(x) x
           #define _(x) x
           #define wxEmptyString FakeWxString("")
@@ -114,35 +111,29 @@ jobs:
           #define wxLogMessage(...) 
           #define wxLogStatus(...)
           #define wxUnusedVar(x) (void)x
-
-          class wxThread { public: virtual ~wxThread() {} virtual void* Entry() = 0; };
-          class wxMutex { public: void Lock() {} void Unlock() {} };
-          class wxCriticalSection { public: void Enter() {} void Leave() {} };
-          
           struct wxPoint { int x, y; };
           struct wxSize { int x, y; };
-          #endif
           EOF
 
-          # 5. MOCK WX HEADERS
+          # 6. MOCK WX HEADERS
           for h in tokenzr.h string.h log.h setup.h intl.h crt.h msgdlg.h filefn.h config.h thread.h chartype.h buffer.h; do
             echo "#include \"../wx_bridge.h\"" > dummy_wx/wx/$h
           done
 
           cd build
           
-          # 6. CONFIGURE
+          # 7. CONFIGURE (Force System ZLIB)
           cmake .. -DCMAKE_BUILD_TYPE=Release \
                    -DUSE_CUBEB=OFF -DBUILD_CUBEB=OFF \
                    -DUSE_WXWIDGETS=OFF -DUSE_OPENGL=OFF -DUSE_VULKAN=ON \
+                   -DPCSX2_USE_PCH=OFF \
+                   -DZLIB_INCLUDE_DIR=/usr/include \
                    -DCMAKE_CXX_FLAGS="-I${GITHUB_WORKSPACE}/dummy_wx -include ${GITHUB_WORKSPACE}/dummy_wx/wx_bridge.h" \
-                   -DCMAKE_C_FLAGS="-I${GITHUB_WORKSPACE}/dummy_wx" \
-                   -DPCSX2_USE_PCH=OFF
+                   -DCMAKE_C_FLAGS="-I${GITHUB_WORKSPACE}/dummy_wx"
 
-          # 7. STRIP FLAGS & CLEAN MACROS
+          # 8. STRIP FLAGS
           find . -name "*.make" -exec sed -i '' 's/-mfpmath=sse//g' {} +
           find . -name "*.make" -exec sed -i '' 's/-msse[^ ]*//g' {} +
-          find . -name "flags.make" -exec sed -i '' 's/-DwxString=std::string//g' {} +
           
-          # 8. START BUILD
+          # 9. START BUILD
           cmake --build . --config Release -- -j $(sysctl -n hw.logicalcpu)
