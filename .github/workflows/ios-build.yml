@@ -54,19 +54,23 @@ jobs:
           export LANG=C
           export LC_ALL=C
           
-          # 3. SMART SOURCE CLEANUP
-          # تحويل wxChar إلى char بدلاً من حذف الأسطر
-          find common -type f \( -name "*.h" -o -name "*.cpp" \) -exec sed -i '' 's/wxChar/char/g' {} +
+          # 3. REFINED SOURCE CLEANUP
+          # بدلاً من استبدال شامل، سنستهدف فقط الكلمات التي تسبب تكرار الدوال
+          # وسنقوم بحذف سطر typedef char char الذي نتج عن الخطأ السابق
+          find common -type f \( -name "*.h" -o -name "*.cpp" \) -exec sed -i '' 's/const wxChar\*/const char\*/g' {} +
+          find common -type f \( -name "*.h" -o -name "*.cpp" \) -exec sed -i '' 's/typedef char char;//g' {} +
           
-          # إزالة الوظائف المكررة التي تسبب redefinition (التي تأخذ char بعد التحويل)
-          # نستخدم sed لتعطيل النسخ المكررة في ملفات معينة
-          sed -i '' 's/FastFormatUnicode& Write(const char\* fmt, ...);/\/\/REMOVED/g' common/StringHelpers.h
-          sed -i '' 's/FastFormatUnicode& WriteV(const char\* fmt, va_list argptr);/\/\/REMOVED/g' common/StringHelpers.h
+          # تعطيل الدوال المكررة في ملفات الكونسول والمساعدات
+          # نستخدم التعطيل عن طريق تحويلها إلى تعليقات
+          sed -i '' 's/bool FormatV(const char\* fmt, va_list args) const;/\/\/DUP/2' common/Console.h
+          sed -i '' 's/bool WriteLn(ConsoleColors color, const char\* fmt, ...) const;/\/\/DUP/2' common/Console.h
+          sed -i '' 's/bool WriteLn(const char\* fmt, ...) const;/\/\/DUP/2' common/Console.h
+          sed -i '' 's/bool Error(const char\* fmt, ...) const;/\/\/DUP/2' common/Console.h
+          sed -i '' 's/bool Warning(const char\* fmt, ...) const;/\/\/DUP/2' common/Console.h
           
           # تعطيل تعريفات wxString الأصلية
           find . -type f \( -name "Pcsx2Defs.h" -o -name "Pcsx2Types.h" \) -exec sed -i '' 's/typedef std::string wxString;/\/\/typedef std::string wxString;/g' {} +
           find . -type f \( -name "Pcsx2Defs.h" -o -name "Pcsx2Types.h" \) -exec sed -i '' 's/class wxString;/\/\/class wxString;/g' {} +
-          find . -type f -name "SafeArray.h" -exec sed -i '' 's/L"Unnamed"/"Unnamed"/g' {} +
           
           # 4. NUCLEAR OPTION FOR CUBEB
           echo "add_library(cubeb INTERFACE)" > 3rdparty/cubeb/CMakeLists.txt
@@ -78,7 +82,7 @@ jobs:
             sed -i '' 's/#        define fdopen(fd,mode) NULL/\/\/#define fdopen/g' "$ZLIB_ZUTIL"
           fi
 
-          # 6. THE MASTER BRIDGE (Simplified)
+          # 6. THE MASTER BRIDGE (V3 - More Robust)
           cat <<EOF > dummy_wx/wx_bridge.h
           #ifndef WX_BRIDGE_H
           #define WX_BRIDGE_H
@@ -88,11 +92,13 @@ jobs:
           #include <cstring>
           #include <cstdio>
 
+          // تعريف الأنواع المفقودة
           typedef int wxStringTokenizerMode;
           #define wxTOKEN_RET_EMPTY_ALL 0
-          class wxStringTokenizer { public: wxStringTokenizer(...) {} bool HasMoreTokens() const { return false; } };
+          class wxStringTokenizer { public: wxStringTokenizer(...) {} bool HasMoreTokens() const { return false; } std::string GetNextToken() { return ""; } };
           struct wxPoint { int x, y; };
           struct wxSize { int x, y; };
+          typedef std::string charBuffer; // حل مشكلة unknown type name 'charBuffer'
 
           class FakeWxString : public std::string {
           public:
@@ -104,6 +110,8 @@ jobs:
               }
               operator const char*() const { return c_str(); }
               const char* wx_str() const { return c_str(); }
+              std::string ToUTF8() const { return *this; } // حل مشكلة ToUTF8
+              bool Empty() const { return empty(); }
               static FakeWxString Format(const char* fmt, ...) {
                   char buf[2048]; va_list args; va_start(args, fmt);
                   vsnprintf(buf, sizeof(buf), fmt, args); va_end(args);
@@ -114,6 +122,7 @@ jobs:
           #undef wxString
           #define wxString FakeWxString
           typedef char wxChar;
+          typedef std::vector<FakeWxString> wxArrayString;
           #define wxT(x) x
           #define _(x) x
           #define wxEmptyString FakeWxString("")
