@@ -54,7 +54,7 @@ jobs:
           export LANG=C
           export LC_ALL=C
           
-          # 3. GLOBAL SOURCE CLEANUP
+          # 3. GLOBAL SOURCE CLEANUP (Fixing Redeclarations)
           find . -type f \( -name "StringHelpers.h" -o -name "Console.h" -o -name "SafeArray.h" \) -print0 | xargs -0 sed -i '' '/const wxChar\* fmt/d' || true
           find . -type f \( -name "StringHelpers.h" -o -name "Console.h" -o -name "SafeArray.h" \) -print0 | xargs -0 sed -i '' '/const wxChar\* psz/d' || true
           find . -type f \( -name "StringHelpers.h" -o -name "Console.h" -o -name "SafeArray.h" \) -print0 | xargs -0 sed -i '' '/const wxChar\* name/d' || true
@@ -66,22 +66,19 @@ jobs:
             sed -i '' 's/#        define fdopen(fd,mode) NULL/\/\/#define fdopen/g' "$ZLIB_ZUTIL"
           fi
 
-          # 5. FORCE DISABLE CUBEB IN CMAKE
-          # This will prevent CMake from even looking into the cubeb directory
-          if [ -f "CMakeLists.txt" ]; then
-            sed -i '' 's/add_subdirectory(3rdparty\/cubeb)/#add_subdirectory(3rdparty\/cubeb)/g' CMakeLists.txt || true
-          fi
-          if [ -f "3rdparty/CMakeLists.txt" ]; then
-            sed -i '' 's/add_subdirectory(cubeb)/#add_subdirectory(cubeb)/g' 3rdparty/CMakeLists.txt || true
-          fi
+          # 5. FORCE DISABLE CUBEB (Solving mozilla/UniquePtr.h error)
+          find . -name "CMakeLists.txt" -exec sed -i '' 's/add_subdirectory(3rdparty\/cubeb)/#add_subdirectory(3rdparty\/cubeb)/g' {} +
+          find . -name "CMakeLists.txt" -exec sed -i '' 's/add_subdirectory(cubeb)/#add_subdirectory(cubeb)/g' {} +
 
-          # 6. THE MASTER BRIDGE
+          # 6. THE MASTER BRIDGE (CORRECTED - No extra #endif)
           cat <<EOF > dummy_wx/wx_bridge.h
-          #pragma once
+          #ifndef WX_BRIDGE_H
+          #define WX_BRIDGE_H
           #include <string>
           #include <vector>
           #include <stdarg.h>
           #include <cstring>
+
           class FakeWxString : public std::string {
           public:
               FakeWxString() : std::string("") {}
@@ -98,11 +95,13 @@ jobs:
               std::string ToUTF8() const { return *this; }
               bool Empty() const { return empty(); }
           };
+
           #undef wxString
           #define wxString FakeWxString
           typedef char wxChar;
           typedef wxString wxCharBuffer;
           typedef std::vector<wxString> wxArrayString;
+
           class wxStringTokenizer {
           public:
               wxStringTokenizer(const wxString& s, const wxString& d) {}
@@ -110,6 +109,7 @@ jobs:
               wxString GetNextToken() { return wxString(""); }
           };
           typedef int wxStringTokenizerMode;
+
           #define wxT(x) x
           #define _(x) x
           #define wxEmptyString FakeWxString("")
