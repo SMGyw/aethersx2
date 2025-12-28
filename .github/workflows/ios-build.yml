@@ -52,11 +52,16 @@ jobs:
           export LANG=C
           export LC_ALL=C
           
-          # 1. AGGRESSIVE ZLIB FIX
-          # Search for any zutil.h and gzguts.h in the entire 3rdparty folder and kill the fdopen macro
+          # 1. FORCE FIX ZLIB (Targeting the specific line in the log)
+          # We use a very specific pattern to disable the fdopen macro in zutil.h
+          ZUTIL_PATH="3rdparty/libchdr/libchdr/deps/zlib-1.2.11/zutil.h"
+          if [ -f "$ZUTIL_PATH" ]; then
+            sed -i '' 's/#\s*define\s*fdopen/\/\/#define fdopen/g' "$ZUTIL_PATH"
+          fi
+          
+          # General purge of fdopen macros in all 3rdparty to be safe
           find 3rdparty -name "zutil.h" -exec sed -i '' '/#\s*define\s*fdopen/d' {} +
           find 3rdparty -name "gzguts.h" -exec sed -i '' '/#\s*define\s*fdopen/d' {} +
-          find 3rdparty -name "gzguts.h" -exec sed -i '' '/#\s*define\s*_POSIX_SOURCE/d' {} +
 
           # 2. REMOVE CONFLICTING TYPEDEFS IN SOURCE
           find common -type f -name "Pcsx2Defs.h" -exec sed -i '' '/typedef std::string wxString;/d' {} +
@@ -135,6 +140,7 @@ jobs:
           done
 
           cd build
+          # Adding -DHAVE_FDOPEN to CMake C_FLAGS to tell zlib fdopen already exists
           cmake .. -DCMAKE_BUILD_TYPE=Release \
                    -DCMAKE_SYSTEM_NAME=Darwin \
                    -DCMAKE_SYSTEM_PROCESSOR=arm64 \
@@ -142,7 +148,7 @@ jobs:
                    -DUSE_WXWIDGETS=OFF -DUSE_OPENGL=OFF -DUSE_VULKAN=ON \
                    -DPCSX2_USE_PCH=OFF \
                    -DCMAKE_CXX_FLAGS="-I${GITHUB_WORKSPACE}/dummy_wx -include ${GITHUB_WORKSPACE}/dummy_wx/wx_bridge.h" \
-                   -DCMAKE_C_FLAGS="-I${GITHUB_WORKSPACE}/dummy_wx"
+                   -DCMAKE_C_FLAGS="-I${GITHUB_WORKSPACE}/dummy_wx -DHAVE_FDOPEN"
 
           find . -name "flags.make" -exec sed -i '' 's/-mfpmath=sse//g' {} +
           find . -name "flags.make" -exec sed -i '' 's/-msse[^ ]*//g' {} +
