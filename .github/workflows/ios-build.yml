@@ -42,7 +42,7 @@ jobs:
             -DPCSX2_CORE=ON \
             -DENABLE_SETCAP=OFF
 
-      - name: Build Core (Strategy: System ZLIB)
+      - name: Build Core (Verbose Mode)
         run: |
           git checkout .
           git clean -fd
@@ -52,21 +52,18 @@ jobs:
           export LANG=C
           export LC_ALL=C
           
-          # 1. FORCE KILL the problematic 3rdparty zlib
-          # سنقوم بحذف محتوى الملف تماماً لمنعه من التدخل
-          find 3rdparty -name "zutil.h" -exec truncate -s 0 {} \;
-          echo "#include <unistd.h>" > 3rdparty/libchdr/libchdr/deps/zlib-1.2.11/zutil.h
-          
-          # 2. SOURCE CODE PRE-PROCESSING
-          # تحويل النصوص العريضة لمنع أخطاء الجمع
-          find . -type f \( -name "*.h" -o -name "*.cpp" -o -name "*.mm" -o -name "*.inl" \) -exec sed -i '' 's/L\(".*"\)/\1/g' {} +
-          
-          # إزالة التعريفات المتعارضة
-          find common -type f -name "Pcsx2Defs.h" -exec sed -i '' '/typedef std::string wxString;/d' {} +
-          find common -type f -name "Pcsx2Types.h" -exec sed -i '' '/class wxString;/d' {} +
-          find common -type f -name "Dependencies.h" -exec sed -i '' '/pxGetTranslation/d' {} +
+          # 1. DIRECT PATCH (No global search to avoid hang)
+          ZUTIL_PATH="3rdparty/libchdr/libchdr/deps/zlib-1.2.11/zutil.h"
+          if [ -f "$ZUTIL_PATH" ]; then
+            sed -i '' 's/#\s*define\s*fdopen/\/\/#define fdopen/g' "$ZUTIL_PATH"
+            echo "Zutil.h patched successfully."
+          fi
 
-          # 3. MASTER BRIDGE HEADER
+          # 2. SOURCE PRE-PROCESSING (Crucial for 32%+ progress)
+          # Convert L"text" to "text" only in common folder to save time
+          find common -type f \( -name "*.h" -o -name "*.cpp" -o -name "*.mm" -o -name "*.inl" \) -exec sed -i '' 's/L\(".*"\)/\1/g' {} +
+
+          # 3. ROBUST BRIDGE HEADER
           cat <<EOF > dummy_wx/wx_bridge.h
           #ifndef WX_BRIDGE_H
           #define WX_BRIDGE_H
@@ -74,25 +71,21 @@ jobs:
           #include <string>
           #include <vector>
           #include <stdarg.h>
-          #include <iostream>
 
-          // حماية صريحة ضد fdopen
+          #ifdef fdopen
           #undef fdopen
+          #endif
 
           typedef char wxChar;
           #define _T(x) x
           #define wxT(x) x
           #define _(x) x
           #define __TFILE__ __FILE__
-          #define __pxFUNCTION__ __FUNCTION__
 
           class FakeWxString : public std::string {
           public:
-              FakeWxString() : std::string("") {}
-              FakeWxString(const char* s) : std::string(s ? s : "") {}
-              FakeWxString(const std::string& s) : std::string(s) {}
+              using std::string::string;
               FakeWxString(const wchar_t* ws) : std::string("") {}
-              operator const char*() const { return c_str(); }
               const char* wx_str() const { return c_str(); }
               bool Empty() const { return empty(); }
               bool IsEmpty() const { return empty(); }
@@ -102,32 +95,35 @@ jobs:
                   return FakeWxString(b);
               }
           };
+
           #define wxString FakeWxString
           #define wxEmptyString FakeWxString("")
           typedef std::vector<FakeWxString> wxArrayString;
           inline const char* pxGetTranslation(const char* m) { return m; }
+          
+          class wxCharBuffer {
+          public:
+              std::string s;
+              wxCharBuffer(const std::string& str) : s(str) {}
+              const char* data() const { return s.c_str(); }
+              operator const char*() const { return s.c_str(); }
+          };
           #endif
           EOF
 
-          for h in string.h log.h setup.h intl.h crt.h filefn.h config.h chartype.h tokenzr.h; do
+          for h in string.h log.h setup.h intl.h crt.h filefn.h config.h chartype.h tokenzr.h buffer.h; do
             echo "#include \"../wx_bridge.h\"" > dummy_wx/wx/$h
           done
 
           cd build
-          # استخدام ZLIB النظام بدلاً من النسخة المعطوبة
           cmake .. -DCMAKE_BUILD_TYPE=Release \
                    -DCMAKE_SYSTEM_NAME=Darwin \
                    -DUSE_WXWIDGETS=OFF \
                    -DUSE_OPENGL=OFF \
                    -DUSE_VULKAN=ON \
                    -DPCSX2_USE_PCH=OFF \
-                   -DZLIB_INCLUDE_DIR=/usr/include \
-                   -DZLIB_LIBRARY=/usr/lib/libz.dylib \
                    -DCMAKE_CXX_FLAGS="-I${GITHUB_WORKSPACE}/dummy_wx -include ${GITHUB_WORKSPACE}/dummy_wx/wx_bridge.h -Wno-everything" \
                    -DCMAKE_C_FLAGS="-DHAVE_FDOPEN -Wno-everything"
 
-          # منع SSE التي تسبب مشاكل على ARM64
-          find . -name "flags.make" -exec sed -i '' 's/-mfpmath=sse//g' {} +
-          find . -name "flags.make" -exec sed -i '' 's/-msse[^ ]*//g' {} +
-
-          cmake --build . --config Release -- -j $(sysctl -n hw.logicalcpu)
+          # 4. VERBOSE BUILD (To see where it hangs)
+          cmake --build . --config Release --verbose -- -j $(sysctl -n hw.logicalcpu)
