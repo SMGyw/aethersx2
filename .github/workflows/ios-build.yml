@@ -52,36 +52,27 @@ jobs:
           export LANG=C
           export LC_ALL=C
           
-          # 1. NEW STRATEGY: Patch zlib's CMake and Headers globally
-          # This will find ALL zutil.h files and comment out the fdopen macro regardless of spacing
-          find . -name "zutil.h" -exec sed -i '' 's/.*define.*fdopen.*NULL/\/\/#define fdopen/g' {} +
-          
-          # Force define HAVE_FDOPEN in the actual zconf.h if it exists
+          # 1. FIX ZLIB (Targeting zutil.h line 140)
+          find 3rdparty -name "zutil.h" -exec sed -i '' '/#\s*define\s*fdopen/d' {} +
           find . -name "zconf.h" -exec sh -c 'echo "#define HAVE_FDOPEN 1" >> $1' _ {} \;
 
-          # 2. REMOVE CONFLICTING TYPEDEFS IN SOURCE
+          # 2. SOURCE CODE CLEANUP (Removing redundant typedefs and fixing macros)
           find common -type f -name "Pcsx2Defs.h" -exec sed -i '' '/typedef std::string wxString;/d' {} +
           find common -type f -name "Pcsx2Types.h" -exec sed -i '' '/class wxString;/d' {} +
+          find common -type f -name "Dependencies.h" -exec sed -i '' '/pxGetTranslation/d' {} +
           
-          # 3. GLOBAL WIDE-STRING TO ASCII CONVERSION
-          find common -type f \( -name "*.h" -o -name "*.cpp" -o -name "*.mm" \) -exec sed -i '' 's/L\(".*"\)/\1/g' {} +
-          
-          # 4. FIX DUPLICATE DECLARATIONS & SYNTAX
-          find common -type f -name "StringHelpers.h" -exec sed -i '' '/const wxChar\* psz/d' {} +
-          find common -type f -name "Console.h" -exec sed -i '' '/const wxChar\* fmt/d' {} +
-          find common -type f -name "TraceLog.h" -exec sed -i '' '/const wxChar\* fmt/d' {} +
-          find common -type f -name "StringHelpers.h" -exec sed -i '' 's/operator+=(const char\* psz);/operator+=(const char* psz) { return *this; }/g' {} +
+          # Convert ALL wide strings L"..." to regular strings "..." to avoid operator+ errors
+          find common -type f \( -name "*.h" -o -name "*.cpp" -o -name "*.mm" -o -name "*.inl" \) -exec sed -i '' 's/L\(".*"\)/\1/g' {} +
 
-          # 5. MOCK CUBEB
-          echo "add_library(cubeb INTERFACE)" > 3rdparty/cubeb/CMakeLists.txt
-          echo "add_library(cubeb_resampler INTERFACE)" >> 3rdparty/cubeb/CMakeLists.txt
+          # 3. FIX DUPLICATE Write/WriteV declarations in StringHelpers.h
+          find common -name "StringHelpers.h" -exec sed -i '' '/const wxChar\* fmt/d' {} +
           
-          # 6. MASTER BRIDGE HEADER (With explicit fdopen protection)
+          # 4. MASTER BRIDGE HEADER (The complete fix for wxWidgets replacement)
           cat <<EOF > dummy_wx/wx_bridge.h
           #ifndef WX_BRIDGE_H
           #define WX_BRIDGE_H
-          
-          #include <stdio.h> // Include this first
+
+          #include <stdio.h>
           #ifdef fdopen
           #undef fdopen
           #endif
@@ -90,12 +81,12 @@ jobs:
           #include <vector>
           #include <stdarg.h>
           #include <cstring>
+          #include <iostream>
 
-          typedef int wxStringTokenizerMode;
-          #define wxTOKEN_RET_EMPTY_ALL 0
-          class wxStringTokenizer { public: wxStringTokenizer(...) {} bool HasMoreTokens() const { return false; } std::string GetNextToken() { return ""; } };
-          struct wxPoint { int x, y; };
-          struct wxSize { int x, y; };
+          typedef char wxChar;
+          #define _T(x) x
+          #define __TFILE__ __FILE__
+          #define __pxFUNCTION__ __FUNCTION__
 
           class charBuffer {
           public:
@@ -105,19 +96,23 @@ jobs:
               operator const char*() const { return data_str.c_str(); }
               const char* data() const { return data_str.c_str(); }
           };
+          typedef charBuffer wxCharBuffer;
 
           class FakeWxString : public std::string {
           public:
               FakeWxString() : std::string("") {}
               FakeWxString(const char* s) : std::string(s ? s : "") {}
               FakeWxString(const std::string& s) : std::string(s) {}
-              FakeWxString(const wchar_t* ws) : std::string("") {} 
+              FakeWxString(const wchar_t* ws) : std::string("") {}
+              
               operator const char*() const { return c_str(); }
               const char* wx_str() const { return c_str(); }
               charBuffer ToUTF8() const { return charBuffer(*this); }
               bool Empty() const { return empty(); }
+              bool IsEmpty() const { return empty(); }
+              
               static FakeWxString Format(const char* fmt, ...) {
-                  char buf[2048]; va_list args; va_start(args, fmt);
+                  char buf[4096]; va_list args; va_start(args, fmt);
                   vsnprintf(buf, sizeof(buf), fmt, args); va_end(args);
                   return FakeWxString(buf);
               }
@@ -126,13 +121,12 @@ jobs:
           #define wxString FakeWxString
           #define wxsFormat FakeWxString::Format
           #define WX_STR(x) (x)
-          typedef char wxChar;
           typedef std::vector<FakeWxString> wxArrayString;
           #define wxT(x) x
           #define _(x) x
           #define wxEmptyString FakeWxString("")
-          #define wxLogMessage(...) 
-          #define pxGetTranslation(x) (x)
+          #define wxLogMessage(...)
+          inline const char* pxGetTranslation(const char* m) { return m; }
           #endif
           EOF
 
