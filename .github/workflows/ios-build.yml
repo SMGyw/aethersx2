@@ -60,21 +60,28 @@ jobs:
           find . -type f \( -name "StringHelpers.h" -o -name "Console.h" -o -name "SafeArray.h" \) -print0 | xargs -0 sed -i '' '/const wxChar\* name/d' || true
           find . -type f -name "SafeArray.h" -exec sed -i '' 's/L"Unnamed"/"Unnamed"/g' {} +
 
-          # 4. FIX ZLIB CONFLICT (The fdopen error)
-          # We will force the bundled zlib to not redefine fdopen
+          # 4. FIX ZLIB CONFLICT
           ZLIB_ZUTIL="3rdparty/libchdr/libchdr/deps/zlib-1.2.11/zutil.h"
           if [ -f "$ZLIB_ZUTIL" ]; then
             sed -i '' 's/#        define fdopen(fd,mode) NULL/\/\/#define fdopen/g' "$ZLIB_ZUTIL"
           fi
 
-          # 5. THE MASTER BRIDGE
+          # 5. FORCE DISABLE CUBEB IN CMAKE
+          # This will prevent CMake from even looking into the cubeb directory
+          if [ -f "CMakeLists.txt" ]; then
+            sed -i '' 's/add_subdirectory(3rdparty\/cubeb)/#add_subdirectory(3rdparty\/cubeb)/g' CMakeLists.txt || true
+          fi
+          if [ -f "3rdparty/CMakeLists.txt" ]; then
+            sed -i '' 's/add_subdirectory(cubeb)/#add_subdirectory(cubeb)/g' 3rdparty/CMakeLists.txt || true
+          fi
+
+          # 6. THE MASTER BRIDGE
           cat <<EOF > dummy_wx/wx_bridge.h
           #pragma once
           #include <string>
           #include <vector>
           #include <stdarg.h>
           #include <cstring>
-
           class FakeWxString : public std::string {
           public:
               FakeWxString() : std::string("") {}
@@ -91,7 +98,6 @@ jobs:
               std::string ToUTF8() const { return *this; }
               bool Empty() const { return empty(); }
           };
-
           #undef wxString
           #define wxString FakeWxString
           typedef char wxChar;
@@ -113,27 +119,27 @@ jobs:
           #define wxUnusedVar(x) (void)x
           struct wxPoint { int x, y; };
           struct wxSize { int x, y; };
+          #endif
           EOF
 
-          # 6. MOCK WX HEADERS
+          # 7. MOCK WX HEADERS
           for h in tokenzr.h string.h log.h setup.h intl.h crt.h msgdlg.h filefn.h config.h thread.h chartype.h buffer.h; do
             echo "#include \"../wx_bridge.h\"" > dummy_wx/wx/$h
           done
 
           cd build
           
-          # 7. CONFIGURE (Force System ZLIB)
+          # 8. CONFIGURE
           cmake .. -DCMAKE_BUILD_TYPE=Release \
                    -DUSE_CUBEB=OFF -DBUILD_CUBEB=OFF \
                    -DUSE_WXWIDGETS=OFF -DUSE_OPENGL=OFF -DUSE_VULKAN=ON \
                    -DPCSX2_USE_PCH=OFF \
-                   -DZLIB_INCLUDE_DIR=/usr/include \
                    -DCMAKE_CXX_FLAGS="-I${GITHUB_WORKSPACE}/dummy_wx -include ${GITHUB_WORKSPACE}/dummy_wx/wx_bridge.h" \
                    -DCMAKE_C_FLAGS="-I${GITHUB_WORKSPACE}/dummy_wx"
 
-          # 8. STRIP FLAGS
+          # 9. STRIP FLAGS
           find . -name "*.make" -exec sed -i '' 's/-mfpmath=sse//g' {} +
           find . -name "*.make" -exec sed -i '' 's/-msse[^ ]*//g' {} +
           
-          # 9. START BUILD
+          # 10. START BUILD
           cmake --build . --config Release -- -j $(sysctl -n hw.logicalcpu)
