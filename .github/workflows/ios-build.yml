@@ -54,14 +54,15 @@ jobs:
           export LANG=C
           export LC_ALL=C
           
-          # 3. GLOBAL SOURCE CLEANUP
-          find . -type f \( -name "StringHelpers.h" -o -name "Console.h" -o -name "SafeArray.h" \) -print0 | xargs -0 sed -i '' '/const wxChar\* fmt/d' || true
-          find . -type f \( -name "StringHelpers.h" -o -name "Console.h" -o -name "SafeArray.h" \) -print0 | xargs -0 sed -i '' '/const wxChar\* psz/d' || true
-          find . -type f \( -name "StringHelpers.h" -o -name "Console.h" -o -name "SafeArray.h" \) -print0 | xargs -0 sed -i '' '/const wxChar\* name/d' || true
-          find . -type f -name "SafeArray.h" -exec sed -i '' 's/L"Unnamed"/"Unnamed"/g' {} +
+          # 3. GLOBAL SOURCE CLEANUP (إصلاح تضارب std::string و wxString)
+          # سنقوم بتعطيل التعريفات المتعارضة في ملفات المشروع الأصلية
+          find . -type f \( -name "Pcsx2Defs.h" -o -name "Pcsx2Types.h" \) -exec sed -i '' 's/typedef std::string wxString;/\/\/typedef std::string wxString;/g' {} +
+          find . -type f \( -name "Pcsx2Defs.h" -o -name "Pcsx2Types.h" \) -exec sed -i '' 's/class wxString;/\/\/class wxString;/g' {} +
 
-          # 4. NUCLEAR OPTION FOR CUBEB (Solving mozilla/UniquePtr.h once and for all)
-          # We empty the CMake file and provide a dummy target
+          # إصلاح مشكلة L"Unnamed" دون حذف المعاملات لكي لا ينهار الكود
+          find . -type f -name "SafeArray.h" -exec sed -i '' 's/L"Unnamed"/"Unnamed"/g' {} +
+          
+          # 4. NUCLEAR OPTION FOR CUBEB
           echo "add_library(cubeb INTERFACE)" > 3rdparty/cubeb/CMakeLists.txt
           echo "add_library(cubeb_resampler INTERFACE)" >> 3rdparty/cubeb/CMakeLists.txt
           
@@ -71,7 +72,7 @@ jobs:
             sed -i '' 's/#        define fdopen(fd,mode) NULL/\/\/#define fdopen/g' "$ZLIB_ZUTIL"
           fi
 
-          # 6. THE MASTER BRIDGE
+          # 6. THE MASTER BRIDGE (نسخة محسنة تدعم Format و wx_str)
           cat <<EOF > dummy_wx/wx_bridge.h
           #ifndef WX_BRIDGE_H
           #define WX_BRIDGE_H
@@ -79,6 +80,8 @@ jobs:
           #include <vector>
           #include <stdarg.h>
           #include <cstring>
+          #include <cstdio>
+
           class FakeWxString : public std::string {
           public:
               FakeWxString() : std::string("") {}
@@ -92,27 +95,32 @@ jobs:
               }
               operator const char*() const { return c_str(); }
               const char* c_str() const { return std::string::c_str(); }
+              const char* wx_str() const { return c_str(); }
               std::string ToUTF8() const { return *this; }
               bool Empty() const { return empty(); }
+              
+              static FakeWxString Format(const char* fmt, ...) {
+                  char buf[1024];
+                  va_list args;
+                  va_start(args, fmt);
+                  vsnprintf(buf, sizeof(buf), fmt, args);
+                  va_end(args);
+                  return FakeWxString(buf);
+              }
+              // لدعم التنسيق مع نصوص عريضة بشكل مبسط
+              static FakeWxString Format(const wchar_t* fmt, ...) { return FakeWxString("FormattedString"); }
           };
+
           #undef wxString
           #define wxString FakeWxString
           typedef char wxChar;
           typedef wxString wxCharBuffer;
           typedef std::vector<wxString> wxArrayString;
-          class wxStringTokenizer {
-          public:
-              wxStringTokenizer(const wxString& s, const wxString& d) {}
-              bool HasMoreTokens() const { return false; }
-              wxString GetNextToken() { return wxString(""); }
-          };
-          typedef int wxStringTokenizerMode;
+          
           #define wxT(x) x
           #define _(x) x
           #define wxEmptyString FakeWxString("")
-          #define wxTOKEN_RET_EMPTY_ALL 0
           #define wxLogMessage(...) 
-          #define wxLogStatus(...)
           #define wxUnusedVar(x) (void)x
           struct wxPoint { int x, y; };
           struct wxSize { int x, y; };
@@ -131,12 +139,8 @@ jobs:
                    -DUSE_CUBEB=OFF -DBUILD_CUBEB=OFF \
                    -DUSE_WXWIDGETS=OFF -DUSE_OPENGL=OFF -DUSE_VULKAN=ON \
                    -DPCSX2_USE_PCH=OFF \
-                   -DCMAKE_CXX_FLAGS="-I${GITHUB_WORKSPACE}/dummy_wx -include ${GITHUB_WORKSPACE}/dummy_wx/wx_bridge.h" \
+                   -DCMAKE_CXX_FLAGS="-I${GITHUB_WORKSPACE}/dummy_wx -include ${GITHUB_WORKSPACE}/dummy_wx/wx_bridge.h -DwxString=FakeWxString" \
                    -DCMAKE_C_FLAGS="-I${GITHUB_WORKSPACE}/dummy_wx"
 
-          # 9. STRIP FLAGS
-          find . -name "*.make" -exec sed -i '' 's/-mfpmath=sse//g' {} +
-          find . -name "*.make" -exec sed -i '' 's/-msse[^ ]*//g' {} +
-          
-          # 10. START BUILD
+          # 9. START BUILD
           cmake --build . --config Release -- -j $(sysctl -n hw.logicalcpu)
