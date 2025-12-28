@@ -50,46 +50,36 @@ jobs:
           rm -rf build && mkdir build
           mkdir -p dummy_wx/wx
           
-          # 2. FIX ZLIB (Worked before)
+          # 2. FORCE DISABLE INTERNAL ZLIB
           if [ -d "3rdparty/libchdr/libchdr/deps/zlib-1.2.11" ]; then
             echo "cmake_minimum_required(VERSION 3.10)" > 3rdparty/libchdr/libchdr/deps/zlib-1.2.11/CMakeLists.txt
             echo "project(zlib_dummy)" >> 3rdparty/libchdr/libchdr/deps/zlib-1.2.11/CMakeLists.txt
             echo "add_library(zlib INTERFACE)" >> 3rdparty/libchdr/libchdr/deps/zlib-1.2.11/CMakeLists.txt
           fi
 
-          # 3. CLEAN DUMMY FILES
-          echo "// Empty" > common/GL/ContextAGL.mm
-          echo "// Empty" > 3rdparty/cubeb/src/cubeb_resampler.cpp
-          echo "// Empty" > 3rdparty/cubeb/src/cubeb_audiounit.cpp
+          # 3. GLOBAL SOURCE CLEANUP (The "Aggressive" Strategy)
+          # We remove the lines in the source code that try to redefine wxString manually
+          find . -name "Pcsx2Defs.h" -exec sed -i '' '/typedef std::string wxString/d' {} +
+          find . -name "Pcsx2Types.h" -exec sed -i '' '/class wxString/d' {} +
 
-          # 4. REFINED BRIDGE (No more typedef conflicts)
+          # 4. FINAL BRIDGE HEADER
           cat <<EOF > dummy_wx/wx_bridge.h
           #pragma once
-          #ifdef __cplusplus
           #include <string>
           #include <vector>
-          // Only define if not already defined by CMake flags
-          #ifndef WX_DEFINED
-          #define WX_DEFINED
-          class wxString : public std::string {
-          public:
-              wxString() : std::string("") {}
-              wxString(const char* s) : std::string(s) {}
-              wxString(const std::string& s) : std::string(s) {}
-          };
-          #endif
 
-          #ifndef wxT
+          // Use a simple define that won't conflict with typedefs
+          #ifndef WX_BRIDGE_INCLUDED
+          #define WX_BRIDGE_INCLUDED
+          
+          #define wxString std::string
           #define wxT(x) x
-          #endif
-          #ifndef _
           #define _(x) x
-          #endif
-          #define wxEmptyString ""
+          #define wxEmptyString std::string("")
           #define wxLogMessage(...) 
           #define wxLogStatus(...)
           #define wxUnusedVar(x) (void)x
-          
+
           class wxThread { public: virtual ~wxThread() {} virtual void* Entry() = 0; };
           class wxMutex { public: void Lock() {} void Unlock() {} };
           class wxCriticalSection { public: void Enter() {} void Leave() {} };
@@ -103,17 +93,20 @@ jobs:
 
           cd build
           
-          # 6. CONFIGURE (Removed the conflicting -DwxString)
+          # 6. CONFIGURE (Targeting iOS ARM64)
+          # IMPORTANT: We added -DwxString=std::string here to force it globally
           cmake .. -DCMAKE_BUILD_TYPE=Release \
                    -DUSE_CUBEB=OFF -DBUILD_CUBEB=OFF \
                    -DUSE_WXWIDGETS=OFF -DUSE_OPENGL=OFF -DUSE_VULKAN=ON \
-                   -DCMAKE_CXX_FLAGS="-I${GITHUB_WORKSPACE}/dummy_wx -include ${GITHUB_WORKSPACE}/dummy_wx/wx_bridge.h" \
+                   -DCMAKE_CXX_FLAGS="-I${GITHUB_WORKSPACE}/dummy_wx -include ${GITHUB_WORKSPACE}/dummy_wx/wx_bridge.h -DwxString=std::string" \
                    -DCMAKE_C_FLAGS="-I${GITHUB_WORKSPACE}/dummy_wx" \
                    -DPCSX2_USE_PCH=OFF
 
-          # 7. STRIP INTEL FLAGS (Fixing SSE error)
+          # 7. STRIP INTEL & CONFLICTING FLAGS
+          # This cleans the generated files from any SSE or redundant string defines
           find . -name "*.make" -exec sed -i '' 's/-mfpmath=sse//g' {} +
           find . -name "*.make" -exec sed -i '' 's/-msse[^ ]*//g' {} +
+          find . -name "flags.make" -exec sed -i '' 's/-DwxString=std::string//g' {} +
           
           # 8. START BUILD
           cmake --build . --config Release -- -j $(sysctl -n hw.logicalcpu)
