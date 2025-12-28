@@ -54,23 +54,24 @@ jobs:
           export LANG=C
           export LC_ALL=C
           
-          # 3. GLOBAL SOURCE CLEANUP (Fixing Redeclarations)
+          # 3. GLOBAL SOURCE CLEANUP
           find . -type f \( -name "StringHelpers.h" -o -name "Console.h" -o -name "SafeArray.h" \) -print0 | xargs -0 sed -i '' '/const wxChar\* fmt/d' || true
           find . -type f \( -name "StringHelpers.h" -o -name "Console.h" -o -name "SafeArray.h" \) -print0 | xargs -0 sed -i '' '/const wxChar\* psz/d' || true
           find . -type f \( -name "StringHelpers.h" -o -name "Console.h" -o -name "SafeArray.h" \) -print0 | xargs -0 sed -i '' '/const wxChar\* name/d' || true
           find . -type f -name "SafeArray.h" -exec sed -i '' 's/L"Unnamed"/"Unnamed"/g' {} +
 
-          # 4. FIX ZLIB CONFLICT
+          # 4. NUCLEAR OPTION FOR CUBEB (Solving mozilla/UniquePtr.h once and for all)
+          # We empty the CMake file and provide a dummy target
+          echo "add_library(cubeb INTERFACE)" > 3rdparty/cubeb/CMakeLists.txt
+          echo "add_library(cubeb_resampler INTERFACE)" >> 3rdparty/cubeb/CMakeLists.txt
+          
+          # 5. FIX ZLIB CONFLICT
           ZLIB_ZUTIL="3rdparty/libchdr/libchdr/deps/zlib-1.2.11/zutil.h"
           if [ -f "$ZLIB_ZUTIL" ]; then
             sed -i '' 's/#        define fdopen(fd,mode) NULL/\/\/#define fdopen/g' "$ZLIB_ZUTIL"
           fi
 
-          # 5. FORCE DISABLE CUBEB (Solving mozilla/UniquePtr.h error)
-          find . -name "CMakeLists.txt" -exec sed -i '' 's/add_subdirectory(3rdparty\/cubeb)/#add_subdirectory(3rdparty\/cubeb)/g' {} +
-          find . -name "CMakeLists.txt" -exec sed -i '' 's/add_subdirectory(cubeb)/#add_subdirectory(cubeb)/g' {} +
-
-          # 6. THE MASTER BRIDGE (CORRECTED - No extra #endif)
+          # 6. THE MASTER BRIDGE
           cat <<EOF > dummy_wx/wx_bridge.h
           #ifndef WX_BRIDGE_H
           #define WX_BRIDGE_H
@@ -78,7 +79,6 @@ jobs:
           #include <vector>
           #include <stdarg.h>
           #include <cstring>
-
           class FakeWxString : public std::string {
           public:
               FakeWxString() : std::string("") {}
@@ -95,13 +95,11 @@ jobs:
               std::string ToUTF8() const { return *this; }
               bool Empty() const { return empty(); }
           };
-
           #undef wxString
           #define wxString FakeWxString
           typedef char wxChar;
           typedef wxString wxCharBuffer;
           typedef std::vector<wxString> wxArrayString;
-
           class wxStringTokenizer {
           public:
               wxStringTokenizer(const wxString& s, const wxString& d) {}
@@ -109,7 +107,6 @@ jobs:
               wxString GetNextToken() { return wxString(""); }
           };
           typedef int wxStringTokenizerMode;
-
           #define wxT(x) x
           #define _(x) x
           #define wxEmptyString FakeWxString("")
