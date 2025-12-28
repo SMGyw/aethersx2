@@ -42,7 +42,7 @@ jobs:
             -DPCSX2_CORE=ON \
             -DENABLE_SETCAP=OFF
 
-      - name: Build Core (Verbose Mode)
+      - name: Build Core (Final Architecture Fix)
         run: |
           git checkout .
           git clean -fd
@@ -52,18 +52,22 @@ jobs:
           export LANG=C
           export LC_ALL=C
           
-          # 1. DIRECT PATCH (No global search to avoid hang)
+          # 1. REMOVE SSE FROM ALL CMAKE FILES (The core fix)
+          # سنقوم بحذف أي إشارة لـ sse في ملفات الإعدادات قبل توليد ملفات البناء
+          find . -name "CMakeLists.txt" -exec sed -i '' 's/-mfpmath=sse//g' {} +
+          find . -name "*.cmake" -exec sed -i '' 's/-mfpmath=sse//g' {} +
+          find . -name "CMakeLists.txt" -exec sed -i '' 's/-msse[^ "]*//g' {} +
+
+          # 2. PATCH ZLIB DIRECTLY
           ZUTIL_PATH="3rdparty/libchdr/libchdr/deps/zlib-1.2.11/zutil.h"
           if [ -f "$ZUTIL_PATH" ]; then
             sed -i '' 's/#\s*define\s*fdopen/\/\/#define fdopen/g' "$ZUTIL_PATH"
-            echo "Zutil.h patched successfully."
           fi
 
-          # 2. SOURCE PRE-PROCESSING (Crucial for 32%+ progress)
-          # Convert L"text" to "text" only in common folder to save time
+          # 3. CONVERT WIDE STRINGS
           find common -type f \( -name "*.h" -o -name "*.cpp" -o -name "*.mm" -o -name "*.inl" \) -exec sed -i '' 's/L\(".*"\)/\1/g' {} +
 
-          # 3. ROBUST BRIDGE HEADER
+          # 4. ROBUST BRIDGE HEADER
           cat <<EOF > dummy_wx/wx_bridge.h
           #ifndef WX_BRIDGE_H
           #define WX_BRIDGE_H
@@ -71,17 +75,13 @@ jobs:
           #include <string>
           #include <vector>
           #include <stdarg.h>
-
           #ifdef fdopen
           #undef fdopen
           #endif
-
           typedef char wxChar;
           #define _T(x) x
           #define wxT(x) x
           #define _(x) x
-          #define __TFILE__ __FILE__
-
           class FakeWxString : public std::string {
           public:
               using std::string::string;
@@ -95,14 +95,11 @@ jobs:
                   return FakeWxString(b);
               }
           };
-
           #define wxString FakeWxString
           #define wxEmptyString FakeWxString("")
           typedef std::vector<FakeWxString> wxArrayString;
           inline const char* pxGetTranslation(const char* m) { return m; }
-          
-          class wxCharBuffer {
-          public:
+          struct wxCharBuffer {
               std::string s;
               wxCharBuffer(const std::string& str) : s(str) {}
               const char* data() const { return s.c_str(); }
@@ -116,14 +113,18 @@ jobs:
           done
 
           cd build
+          # إضافة أعلام صريحة لتعطيل SSE وتفعيل NEON
           cmake .. -DCMAKE_BUILD_TYPE=Release \
                    -DCMAKE_SYSTEM_NAME=Darwin \
+                   -DCMAKE_OSX_ARCHITECTURES=arm64 \
                    -DUSE_WXWIDGETS=OFF \
                    -DUSE_OPENGL=OFF \
                    -DUSE_VULKAN=ON \
                    -DPCSX2_USE_PCH=OFF \
-                   -DCMAKE_CXX_FLAGS="-I${GITHUB_WORKSPACE}/dummy_wx -include ${GITHUB_WORKSPACE}/dummy_wx/wx_bridge.h -Wno-everything" \
-                   -DCMAKE_C_FLAGS="-DHAVE_FDOPEN -Wno-everything"
+                   -DCMAKE_CXX_FLAGS="-I${GITHUB_WORKSPACE}/dummy_wx -include ${GITHUB_WORKSPACE}/dummy_wx/wx_bridge.h -Wno-everything -D__ARM_NEON__" \
+                   -DCMAKE_C_FLAGS="-DHAVE_FDOPEN -Wno-everything -D__ARM_NEON__"
 
-          # 4. VERBOSE BUILD (To see where it hangs)
+          # خطوة إضافية للتأكد من ملفات البناء المولدة
+          find . -name "flags.make" -exec sed -i '' 's/-mfpmath=sse//g' {} +
+
           cmake --build . --config Release --verbose -- -j $(sysctl -n hw.logicalcpu)
