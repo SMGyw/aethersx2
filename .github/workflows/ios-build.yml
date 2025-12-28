@@ -42,31 +42,43 @@ jobs:
             -DPCSX2_CORE=ON \
             -DENABLE_SETCAP=OFF
 
-      - name: Build Core (Final Zlib Override)
+      - name: Build Core (Fixing Cubeb and 30%+)
         run: |
           git checkout .
           git clean -fd
           rm -rf build && mkdir build
           mkdir -p dummy_wx/wx
+          mkdir -p dummy_wx/mozilla
           
           export LANG=C
           export LC_ALL=C
           
-          # 1. PHYSICAL DELETION OF CONFLICTING MACRO
-          # We search for the exact line in zlib and delete it physically from the file
-          # This is more reliable than 'sed' replacement
+          # 1. PURGE ZLIB FDOPEN (Proven Success)
           Z_FILE="3rdparty/libchdr/libchdr/deps/zlib-1.2.11/zutil.h"
           if [ -f "$Z_FILE" ]; then
             grep -v "define fdopen" "$Z_FILE" > "${Z_FILE}.tmp" && mv "${Z_FILE}.tmp" "$Z_FILE"
-            echo "Successfully purged fdopen macro from zlib."
           fi
 
-          # 2. SOURCE CODE PRE-PROCESSING
-          # Fix Wide String issues and common header conflicts
-          find common -type f \( -name "*.h" -o -name "*.cpp" -o -name "*.mm" -o -name "*.inl" \) -exec sed -i '' 's/L\(".*"\)/\1/g' {} +
-          find common -type f -name "Pcsx2Defs.h" -exec sed -i '' '/typedef std::string wxString;/d' {} +
+          # 2. FIX CUBEB (Mozilla Missing Headers)
+          # We create a dummy UniquePtr.h to satisfy Cubeb
+          cat <<EOF > dummy_wx/mozilla/UniquePtr.h
+          #ifndef MOZILLA_UNIQUEPTR_H
+          #define MOZILLA_UNIQUEPTR_H
+          #include <memory>
+          namespace mozilla {
+              template<typename T> using UniquePtr = std::unique_ptr<T>;
+          }
+          #endif
+          EOF
 
-          # 3. ROBUST BRIDGE HEADER
+          # Force Cubeb to NOT think it's part of Gecko/Mozilla
+          find 3rdparty/cubeb -name "*.cpp" -o -name "*.h" -exec sed -i '' 's/#include "mozilla\/UniquePtr.h"/#include <memory>/g' {} +
+          find 3rdparty/cubeb -name "*.h" -exec sed -i '' 's/mozilla::UniquePtr/std::unique_ptr/g' {} +
+
+          # 3. SOURCE PRE-PROCESSING
+          find common -type f \( -name "*.h" -o -name "*.cpp" -o -name "*.mm" -o -name "*.inl" \) -exec sed -i '' 's/L\(".*"\)/\1/g' {} +
+
+          # 4. BRIDGE HEADER
           cat <<EOF > dummy_wx/wx_bridge.h
           #ifndef WX_BRIDGE_H
           #define WX_BRIDGE_H
@@ -75,8 +87,8 @@ jobs:
           #include <string>
           #include <vector>
           #include <stdarg.h>
+          #include <memory>
 
-          // Ensure fdopen is never redefined
           #ifdef fdopen
           #undef fdopen
           #endif
@@ -85,9 +97,9 @@ jobs:
           #define _T(x) x
           #define wxT(x) x
           #define _(x) x
-          #define __TFILE__ __FILE__
 
-          struct FakeWxString : public std::string {
+          class FakeWxString : public std::string {
+          public:
               using std::string::string;
               FakeWxString(const wchar_t* ws) : std::string("") {}
               const char* wx_str() const { return c_str(); }
@@ -111,10 +123,8 @@ jobs:
           done
 
           cd build
-          # Remove SSE flags globally from CMake files before generation
           find .. -name "CMakeLists.txt" -exec sed -i '' 's/-mfpmath=sse//g' {} +
-          find .. -name "*.cmake" -exec sed -i '' 's/-mfpmath=sse//g' {} +
-
+          
           cmake .. -DCMAKE_BUILD_TYPE=Release \
                    -DCMAKE_SYSTEM_NAME=Darwin \
                    -DCMAKE_OSX_ARCHITECTURES=arm64 \
@@ -125,7 +135,6 @@ jobs:
                    -DCMAKE_CXX_FLAGS="-I${GITHUB_WORKSPACE}/dummy_wx -include ${GITHUB_WORKSPACE}/dummy_wx/wx_bridge.h -Wno-everything" \
                    -DCMAKE_C_FLAGS="-DHAVE_FDOPEN -Wno-everything"
 
-          # Final cleaning of generated build files
           find . -name "flags.make" -exec sed -i '' 's/-mfpmath=sse//g' {} +
 
           cmake --build . --config Release --verbose -- -j $(sysctl -n hw.logicalcpu)
