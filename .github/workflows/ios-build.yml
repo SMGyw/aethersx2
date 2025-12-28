@@ -50,7 +50,11 @@ jobs:
           rm -rf build && mkdir build
           mkdir -p dummy_wx/wx
           
-          # 2. FORCE DISABLE INTERNAL LIBRARIES
+          # 2. FIX LOCALE FOR SED (This fixes "illegal byte sequence")
+          export LANG=C
+          export LC_ALL=C
+          
+          # 3. FORCE DISABLE INTERNAL LIBRARIES
           for lib in zlib-1.2.11 cubeb; do
             dir="3rdparty/$lib"
             [ "$lib" == "zlib-1.2.11" ] && dir="3rdparty/libchdr/libchdr/deps/zlib-1.2.11"
@@ -61,12 +65,11 @@ jobs:
             fi
           done
 
-          # 3. GLOBAL SOURCE CLEANUP
-          # Remove all hardcoded typedefs that might conflict
-          find . -name "*.h" -o -name "*.cpp" -exec sed -i '' '/typedef std::string wxString/d' {} +
-          find . -name "*.h" -o -name "*.cpp" -exec sed -i '' '/using wxString =/d' {} +
+          # 4. GLOBAL SOURCE CLEANUP (Using the fixed Locale)
+          find . -type f \( -name "*.h" -o -name "*.cpp" \) -print0 | xargs -0 sed -i '' '/typedef std::string wxString/d' || true
+          find . -type f \( -name "*.h" -o -name "*.cpp" \) -print0 | xargs -0 sed -i '' '/using wxString =/d' || true
 
-          # 4. THE ULTIMATE BRIDGE (Using a proxy class to avoid macro conflicts)
+          # 5. PROXY BRIDGE HEADER
           cat <<EOF > dummy_wx/wx_bridge.h
           #pragma once
           #include <string>
@@ -75,7 +78,6 @@ jobs:
           #ifndef WX_BRIDGE_INCLUDED
           #define WX_BRIDGE_INCLUDED
 
-          // We define a proxy class with a different name
           class FakeWxString : public std::string {
           public:
               FakeWxString() : std::string("") {}
@@ -84,7 +86,7 @@ jobs:
               FakeWxString(const wchar_t* ws) : std::string("") {
                   if (ws) {
                       std::wstring w(ws);
-                      for (wchar_t x : w) this->push_back((char)x);
+                      for (size_t i = 0; i < w.length(); ++i) this->push_back((char)w[i]);
                   }
               }
               const char* c_str() const { return std::string::c_str(); }
@@ -92,7 +94,6 @@ jobs:
               bool Empty() const { return empty(); }
           };
 
-          // Now we map the original name to our proxy
           #undef wxString
           #define wxString FakeWxString
 
@@ -103,7 +104,7 @@ jobs:
 
           #define wxT(x) x
           #define _(x) x
-          #define wxEmptyString wxString("")
+          #define wxEmptyString FakeWxString("")
           #define wxTOKEN_RET_EMPTY_ALL 0
           #define wxLogMessage(...) 
           #define wxLogStatus(...)
@@ -115,14 +116,14 @@ jobs:
           #endif
           EOF
 
-          # 5. MOCK WX HEADERS
+          # 6. MOCK WX HEADERS
           for h in tokenzr.h string.h log.h setup.h intl.h crt.h msgdlg.h filefn.h config.h thread.h chartype.h buffer.h; do
             echo "#include \"../wx_bridge.h\"" > dummy_wx/wx/$h
           done
 
           cd build
           
-          # 6. CONFIGURE
+          # 7. CONFIGURE
           cmake .. -DCMAKE_BUILD_TYPE=Release \
                    -DUSE_CUBEB=OFF -DBUILD_CUBEB=OFF \
                    -DUSE_WXWIDGETS=OFF -DUSE_OPENGL=OFF -DUSE_VULKAN=ON \
@@ -130,11 +131,10 @@ jobs:
                    -DCMAKE_C_FLAGS="-I${GITHUB_WORKSPACE}/dummy_wx" \
                    -DPCSX2_USE_PCH=OFF
 
-          # 7. STRIP INTEL FLAGS & FIX GENERATED MACROS
+          # 8. STRIP INTEL FLAGS & CLEAN MACROS
           find . -name "*.make" -exec sed -i '' 's/-mfpmath=sse//g' {} +
           find . -name "*.make" -exec sed -i '' 's/-msse[^ ]*//g' {} +
-          # Remove any -DwxString injected by CMake in the flags files
           find . -name "flags.make" -exec sed -i '' 's/-DwxString=std::string//g' {} +
           
-          # 8. START BUILD
+          # 9. START BUILD
           cmake --build . --config Release -- -j $(sysctl -n hw.logicalcpu)
