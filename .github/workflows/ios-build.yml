@@ -52,30 +52,29 @@ jobs:
           export LANG=C
           export LC_ALL=C
           
-          # 1. REMOVE CONFLICTING TYPEDEFS IN SOURCE
-          # Remove 'typedef std::string wxString;' to avoid conflict with our bridge
+          # 1. FIX ZLIB FDOPEN CONFLICT (Critical for macOS)
+          # This removes the problematic macro that redefines fdopen to NULL
+          find 3rdparty/libchdr -type f -name "zutil.h" -exec sed -i '' 's/#\s*define fdopen(fd,mode) NULL/\/\/#define fdopen/g' {} +
+          find 3rdparty/libchdr -type f -name "gzguts.h" -exec sed -i '' '/#\s*define _POSIX_SOURCE/d' {} +
+
+          # 2. REMOVE CONFLICTING TYPEDEFS IN SOURCE
           find common -type f -name "Pcsx2Defs.h" -exec sed -i '' '/typedef std::string wxString;/d' {} +
           find common -type f -name "Pcsx2Types.h" -exec sed -i '' '/class wxString;/d' {} +
           
-          # 2. GLOBAL WIDE-STRING TO ASCII CONVERSION
-          # Converts L"text" to "text" across all common files
+          # 3. GLOBAL WIDE-STRING TO ASCII CONVERSION
           find common -type f \( -name "*.h" -o -name "*.cpp" -o -name "*.mm" \) -exec sed -i '' 's/L\(".*"\)/\1/g' {} +
           
-          # 3. FIX DUPLICATE DECLARATIONS (CLEANER METHOD)
-          # We remove the wxChar versions because wxChar is now just char
+          # 4. FIX DUPLICATE DECLARATIONS
           find common -type f -name "StringHelpers.h" -exec sed -i '' '/const wxChar\* psz/d' {} +
           find common -type f -name "Console.h" -exec sed -i '' '/const wxChar\* fmt/d' {} +
           find common -type f -name "TraceLog.h" -exec sed -i '' '/const wxChar\* fmt/d' {} +
-
-          # 4. FIX STRINGHELPERS SYNTAX ERROR
-          # Ensure no stray braces after our deletions
           find common -type f -name "StringHelpers.h" -exec sed -i '' 's/operator+=(const char\* psz);/operator+=(const char* psz) { return *this; }/g' {} +
 
           # 5. MOCK CUBEB
           echo "add_library(cubeb INTERFACE)" > 3rdparty/cubeb/CMakeLists.txt
           echo "add_library(cubeb_resampler INTERFACE)" >> 3rdparty/cubeb/CMakeLists.txt
           
-          # 6. MASTER BRIDGE HEADER (V5 - IMPROVED CONVERSIONS)
+          # 6. MASTER BRIDGE HEADER
           cat <<EOF > dummy_wx/wx_bridge.h
           #ifndef WX_BRIDGE_H
           #define WX_BRIDGE_H
@@ -106,12 +105,10 @@ jobs:
               FakeWxString(const char* s) : std::string(s ? s : "") {}
               FakeWxString(const std::string& s) : std::string(s) {}
               FakeWxString(const wchar_t* ws) : std::string("") {} 
-              
               operator const char*() const { return c_str(); }
               const char* wx_str() const { return c_str(); }
               charBuffer ToUTF8() const { return charBuffer(*this); }
               bool Empty() const { return empty(); }
-              
               static FakeWxString Format(const char* fmt, ...) {
                   char buf[2048]; va_list args; va_start(args, fmt);
                   vsnprintf(buf, sizeof(buf), fmt, args); va_end(args);
