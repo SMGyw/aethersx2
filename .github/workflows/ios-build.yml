@@ -62,36 +62,39 @@ jobs:
           done
 
           # 3. GLOBAL SOURCE CLEANUP
-          find . -name "Pcsx2Defs.h" -exec sed -i '' '/typedef std::string wxString/d' {} +
-          find . -name "Pcsx2Types.h" -exec sed -i '' '/class wxString/d' {} +
+          # Remove all hardcoded typedefs that might conflict
+          find . -name "*.h" -o -name "*.cpp" -exec sed -i '' '/typedef std::string wxString/d' {} +
+          find . -name "*.h" -o -name "*.cpp" -exec sed -i '' '/using wxString =/d' {} +
 
-          # 4. ENHANCED BRIDGE HEADER (Fixing String & Wchar issues)
+          # 4. THE ULTIMATE BRIDGE (Using a proxy class to avoid macro conflicts)
           cat <<EOF > dummy_wx/wx_bridge.h
           #pragma once
           #include <string>
           #include <vector>
-          #include <iostream>
 
           #ifndef WX_BRIDGE_INCLUDED
           #define WX_BRIDGE_INCLUDED
 
-          // Fix for L"text" issues: define wxString as a class that handles wchar_t
-          class wxString : public std::string {
+          // We define a proxy class with a different name
+          class FakeWxString : public std::string {
           public:
-              wxString() : std::string("") {}
-              wxString(const char* s) : std::string(s ? s : "") {}
-              wxString(const std::string& s) : std::string(s) {}
-              // Handle wchar_t by converting (dummy conversion for build)
-              wxString(const wchar_t* ws) : std::string("") {
+              FakeWxString() : std::string("") {}
+              FakeWxString(const char* s) : std::string(s ? s : "") {}
+              FakeWxString(const std::string& s) : std::string(s) {}
+              FakeWxString(const wchar_t* ws) : std::string("") {
                   if (ws) {
                       std::wstring w(ws);
-                      for (char x : w) this->push_back((char)x);
+                      for (wchar_t x : w) this->push_back((char)x);
                   }
               }
               const char* c_str() const { return std::string::c_str(); }
               std::string ToUTF8() const { return *this; }
               bool Empty() const { return empty(); }
           };
+
+          // Now we map the original name to our proxy
+          #undef wxString
+          #define wxString FakeWxString
 
           typedef char wxChar;
           typedef wxString wxCharBuffer;
@@ -100,7 +103,6 @@ jobs:
 
           #define wxT(x) x
           #define _(x) x
-          #define L(x) x
           #define wxEmptyString wxString("")
           #define wxTOKEN_RET_EMPTY_ALL 0
           #define wxLogMessage(...) 
@@ -128,9 +130,11 @@ jobs:
                    -DCMAKE_C_FLAGS="-I${GITHUB_WORKSPACE}/dummy_wx" \
                    -DPCSX2_USE_PCH=OFF
 
-          # 7. STRIP INTEL FLAGS
+          # 7. STRIP INTEL FLAGS & FIX GENERATED MACROS
           find . -name "*.make" -exec sed -i '' 's/-mfpmath=sse//g' {} +
           find . -name "*.make" -exec sed -i '' 's/-msse[^ ]*//g' {} +
+          # Remove any -DwxString injected by CMake in the flags files
+          find . -name "flags.make" -exec sed -i '' 's/-DwxString=std::string//g' {} +
           
           # 8. START BUILD
           cmake --build . --config Release -- -j $(sysctl -n hw.logicalcpu)
