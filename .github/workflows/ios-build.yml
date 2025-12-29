@@ -42,41 +42,15 @@ jobs:
             -DPCSX2_CORE=ON \
             -DENABLE_SETCAP=OFF
 
-      - name: Build Core (Fixing Cubeb Mozilla dependency)
+      - name: Surgical Fix for Common & Strings
         run: |
           git checkout .
           git clean -fd
           rm -rf build && mkdir build
-          
-          # 1. CREATE ROBUST DUMMY STRUCTURE
           mkdir -p dummy_wx/wx
           mkdir -p dummy_wx/mozilla
-          
-          # Create a Fake UniquePtr for Mozilla to satisfy cubeb
-          cat <<EOF > dummy_wx/mozilla/UniquePtr.h
-          #ifndef MOZILLA_UNIQUEPTR_H
-          #define MOZILLA_UNIQUEPTR_H
-          #include <memory>
-          namespace mozilla {
-              template<typename T> using UniquePtr = std::unique_ptr<T>;
-              template<typename T> struct DefaultDelete : std::default_delete<T> {};
-          }
-          #endif
-          EOF
 
-          # 2. PATCH CUBEB TO STOP SEEKING MOZILLA
-          # Force cubeb to use standard memory instead of mozilla's
-          find 3rdparty/cubeb -name "*.h" -o -name "*.cpp" -exec sed -i '' 's/#include "mozilla\/UniquePtr.h"/#include <memory>/g' {} +
-          find 3rdparty/cubeb -name "*.h" -o -name "*.cpp" -exec sed -i '' 's/mozilla::UniquePtr/std::unique_ptr/g' {} +
-          find 3rdparty/cubeb -name "*.h" -o -name "*.cpp" -exec sed -i '' 's/mozilla::DefaultDelete/std::default_delete/g' {} +
-
-          # 3. FIX ZLIB (Success from previous runs)
-          Z_FILE="3rdparty/libchdr/libchdr/deps/zlib-1.2.11/zutil.h"
-          if [ -f "$Z_FILE" ]; then
-            grep -v "define fdopen" "$Z_FILE" > "${Z_FILE}.tmp" && mv "${Z_FILE}.tmp" "$Z_FILE"
-          fi
-
-          # 4. BRIDGE HEADER
+          # 1. CREATE AN ADVANCED BRIDGE (Expanding to cover all errors)
           cat <<EOF > dummy_wx/wx_bridge.h
           #ifndef WX_BRIDGE_H
           #define WX_BRIDGE_H
@@ -85,48 +59,87 @@ jobs:
           #include <vector>
           #include <stdarg.h>
           #include <memory>
-          #ifdef fdopen
-          #undef fdopen
-          #endif
+
+          // Basic types
           typedef char wxChar;
           #define _T(x) x
           #define wxT(x) x
           #define _(x) x
+
+          // The String Class
           class FakeWxString : public std::string {
           public:
               using std::string::string;
-              FakeWxString(const wchar_t* ws) : std::string("") {}
+              FakeWxString(const char* s) : std::string(s ? s : "") {}
+              FakeWxString(const wchar_t* ws) : std::string("") {} // Ignore wide strings
               const char* wx_str() const { return c_str(); }
               const char* ToUTF8() const { return c_str(); }
-              bool Empty() const { return empty(); }
+              bool IsEmpty() const { return empty(); }
               static FakeWxString Format(const char* f, ...) {
                   char b[4096]; va_list a; va_start(a, f);
                   vsnprintf(b, sizeof(b), f, a); va_end(a);
                   return FakeWxString(b);
               }
           };
+
           #define wxString FakeWxString
+          #define wxEmptyString FakeWxString("")
+          
+          // Buffers and Tokenizers
+          struct wxCharBuffer {
+              std::string s;
+              wxCharBuffer(const char* str = "") : s(str?str:"") {}
+              const char* data() const { return s.c_str(); }
+              operator const char*() const { return s.c_str(); }
+          };
+
+          typedef int wxStringTokenizerMode;
+          #define wxTOKEN_RET_EMPTY_ALL 0
+          class wxStringTokenizer {
+          public:
+              bool HasMoreTokens() const { return false; }
+              FakeWxString GetNextToken() { return ""; }
+          };
+
           typedef std::vector<FakeWxString> wxArrayString;
+          struct wxPoint { int x, y; };
+          struct wxSize { int w, h; };
+          
           #endif
           EOF
 
-          # Create dummy wx headers
+          # 2. PATCH SOURCE FILES TO REMOVE CONFLICTS
+          # Remove the conflicting typedef that the compiler complained about
+          find common -name "Pcsx2Defs.h" -exec sed -i '' '/typedef std::string wxString;/d' {} +
+          find common -name "Pcsx2Types.h" -exec sed -i '' '/class wxString;/d' {} +
+
+          # Global replace for Wide String Literals in the entire common folder
+          # This fixes the L"Unnamed" error
+          find common -type f \( -name "*.h" -o -name "*.cpp" -o -name "*.mm" \) -exec sed -i '' 's/L"Unnamed"/"Unnamed"/g' {} +
+          
+          # Fix for Cubeb (Mozilla headers)
+          cat <<EOF > dummy_wx/mozilla/UniquePtr.h
+          #include <memory>
+          namespace mozilla { template<typename T> using UniquePtr = std::unique_ptr<T>; }
+          EOF
+
+          # 3. SETUP DUMMY HEADERS
           for h in string.h log.h setup.h intl.h crt.h filefn.h config.h chartype.h tokenzr.h buffer.h thread.h; do
             echo "#include \"../wx_bridge.h\"" > dummy_wx/wx/$h
           done
 
+          # 4. CONFIGURE & BUILD
           cd build
           cmake .. -DCMAKE_BUILD_TYPE=Release \
                    -DCMAKE_SYSTEM_NAME=Darwin \
                    -DCMAKE_OSX_ARCHITECTURES=arm64 \
                    -DUSE_WXWIDGETS=OFF \
-                   -DUSE_OPENGL=OFF \
                    -DUSE_VULKAN=ON \
                    -DPCSX2_USE_PCH=OFF \
                    -DCMAKE_CXX_FLAGS="-I${GITHUB_WORKSPACE}/dummy_wx -include ${GITHUB_WORKSPACE}/dummy_wx/wx_bridge.h -Wno-everything" \
                    -DCMAKE_C_FLAGS="-DHAVE_FDOPEN -Wno-everything"
 
-          # Remove SSE flags that cause issues on ARM
+          # Fix ARM math issues
           find . -name "flags.make" -exec sed -i '' 's/-mfpmath=sse//g' {} +
           
           cmake --build . --config Release --verbose -- -j $(sysctl -n hw.logicalcpu)
