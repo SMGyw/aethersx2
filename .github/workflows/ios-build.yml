@@ -42,7 +42,7 @@ jobs:
             -DPCSX2_CORE=ON \
             -DENABLE_SETCAP=OFF
 
-      - name: Build Core (Fixing Cubeb and 30%+)
+      - name: Build Core (Cubeb & Mozilla Cleanup)
         run: |
           git checkout .
           git clean -fd
@@ -59,24 +59,26 @@ jobs:
             grep -v "define fdopen" "$Z_FILE" > "${Z_FILE}.tmp" && mv "${Z_FILE}.tmp" "$Z_FILE"
           fi
 
-          # 2. FIX CUBEB (Mozilla Missing Headers)
-          # We create a dummy UniquePtr.h to satisfy Cubeb
+          # 2. AGGRESSIVE CUBEB CLEANUP
+          # Remove the macro that redefines unique_ptr and causes the error
+          find 3rdparty/cubeb -name "*.h" -o -name "*.cpp" -exec sed -i '' 's/#define unique_ptr UniquePtr/\/\/#define unique_ptr UniquePtr/g' {} +
+          find 3rdparty/cubeb -name "*.h" -o -name "*.cpp" -exec sed -i '' 's/using mozilla::DefaultDelete;//g' {} +
+          find 3rdparty/cubeb -name "*.h" -o -name "*.cpp" -exec sed -i '' 's/mozilla:://g' {} +
+          
+          # Fix the include itself
+          find 3rdparty/cubeb -name "*.h" -o -name "*.cpp" -exec sed -i '' 's/#include "mozilla\/UniquePtr.h"/#include <memory>/g' {} +
+
+          # 3. MOCK MOZILLA (Just in case something still looks for it)
           cat <<EOF > dummy_wx/mozilla/UniquePtr.h
           #ifndef MOZILLA_UNIQUEPTR_H
           #define MOZILLA_UNIQUEPTR_H
           #include <memory>
           namespace mozilla {
               template<typename T> using UniquePtr = std::unique_ptr<T>;
+              template<typename T> struct DefaultDelete : std::default_delete<T> {};
           }
           #endif
           EOF
-
-          # Force Cubeb to NOT think it's part of Gecko/Mozilla
-          find 3rdparty/cubeb -name "*.cpp" -o -name "*.h" -exec sed -i '' 's/#include "mozilla\/UniquePtr.h"/#include <memory>/g' {} +
-          find 3rdparty/cubeb -name "*.h" -exec sed -i '' 's/mozilla::UniquePtr/std::unique_ptr/g' {} +
-
-          # 3. SOURCE PRE-PROCESSING
-          find common -type f \( -name "*.h" -o -name "*.cpp" -o -name "*.mm" -o -name "*.inl" \) -exec sed -i '' 's/L\(".*"\)/\1/g' {} +
 
           # 4. BRIDGE HEADER
           cat <<EOF > dummy_wx/wx_bridge.h
@@ -88,18 +90,14 @@ jobs:
           #include <vector>
           #include <stdarg.h>
           #include <memory>
-
           #ifdef fdopen
           #undef fdopen
           #endif
-
           typedef char wxChar;
           #define _T(x) x
           #define wxT(x) x
           #define _(x) x
-
-          class FakeWxString : public std::string {
-          public:
+          struct FakeWxString : public std::string {
               using std::string::string;
               FakeWxString(const wchar_t* ws) : std::string("") {}
               const char* wx_str() const { return c_str(); }
@@ -136,5 +134,4 @@ jobs:
                    -DCMAKE_C_FLAGS="-DHAVE_FDOPEN -Wno-everything"
 
           find . -name "flags.make" -exec sed -i '' 's/-mfpmath=sse//g' {} +
-
           cmake --build . --config Release --verbose -- -j $(sysctl -n hw.logicalcpu)
