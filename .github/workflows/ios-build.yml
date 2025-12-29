@@ -42,23 +42,36 @@ jobs:
             -DPCSX2_CORE=ON \
             -DENABLE_SETCAP=OFF
 
-      - name: Build Core (Fixing zlib/stdio Conflict)
+      - name: Build Core (Force Injecting Mozilla Headers)
         run: |
           git checkout .
           git clean -fd
           rm -rf build && mkdir build
+          
+          # 1. CREATE DUMMY WX STRUCTURE
           mkdir -p dummy_wx/wx
-          mkdir -p dummy_wx/mozilla
+          
+          # 2. FORCE INJECT MOZILLA HEADERS INTO CUBEB SOURCE
+          # سنقوم بإنشاء المجلد مباشرة داخل مكتبة cubeb لضمان أنها ستجده
+          mkdir -p 3rdparty/cubeb/include/mozilla
+          cat <<EOF > 3rdparty/cubeb/include/mozilla/UniquePtr.h
+          #ifndef MOZILLA_UNIQUEPTR_H
+          #define MOZILLA_UNIQUEPTR_H
+          #include <memory>
+          namespace mozilla {
+              template<typename T> using UniquePtr = std::unique_ptr<T>;
+              template<typename T> struct DefaultDelete : std::default_delete<T> {};
+          }
+          #endif
+          EOF
 
-          # 1. THE CRITICAL FIX: Disable zlib's fake fdopen
-          # This removes the line that defines fdopen as NULL, letting the system header take over.
+          # 3. FIX ZLIB CONFLICT (The fdopen issue)
           Z_FILE="3rdparty/libchdr/libchdr/deps/zlib-1.2.11/zutil.h"
           if [ -f "$Z_FILE" ]; then
-            echo "Patching zlib conflict..."
             sed -i '' '/#        define fdopen/d' "$Z_FILE"
           fi
 
-          # 2. CREATE ADVANCED BRIDGE
+          # 4. CREATE THE BRIDGE HEADER
           cat <<EOF > dummy_wx/wx_bridge.h
           #ifndef WX_BRIDGE_H
           #define WX_BRIDGE_H
@@ -67,12 +80,10 @@ jobs:
           #include <vector>
           #include <stdarg.h>
           #include <memory>
-
           typedef char wxChar;
           #define _T(x) x
           #define wxT(x) x
           #define _(x) x
-
           class FakeWxString : public std::string {
           public:
               using std::string::string;
@@ -80,6 +91,7 @@ jobs:
               FakeWxString(const wchar_t* ws) : std::string("") {}
               const char* wx_str() const { return c_str(); }
               const char* ToUTF8() const { return c_str(); }
+              bool Empty() const { return empty(); }
               bool IsEmpty() const { return empty(); }
               static FakeWxString Format(const char* f, ...) {
                   char b[4096]; va_list a; va_start(a, f);
@@ -87,7 +99,6 @@ jobs:
                   return FakeWxString(b);
               }
           };
-
           #define wxString FakeWxString
           #define wxEmptyString FakeWxString("")
           struct wxCharBuffer {
@@ -95,26 +106,20 @@ jobs:
               wxCharBuffer(const char* str = "") : s(str?str:"") {}
               operator const char*() const { return s.c_str(); }
           };
-          typedef int wxStringTokenizerMode;
-          #define wxTOKEN_RET_EMPTY_ALL 0
-          class wxStringTokenizer { public: bool HasMoreTokens() { return false; } };
           typedef std::vector<FakeWxString> wxArrayString;
-          struct wxPoint { int x, y; };
-          struct wxSize { int w, h; };
           #endif
           EOF
 
-          # 3. PATCH SOURCE FILES
-          find common -name "Pcsx2Defs.h" -exec sed -i '' '/typedef std::string wxString;/d' {} +
-          find common -name "Pcsx2Types.h" -exec sed -i '' '/class wxString;/d' {} +
-          find common -type f \( -name "*.h" -o -name "*.cpp" -o -name "*.mm" \) -exec sed -i '' 's/L"Unnamed"/"Unnamed"/g' {} +
-
-          # 4. SETUP DUMMY HEADERS
+          # Create dummy wx headers
           for h in string.h log.h setup.h intl.h crt.h filefn.h config.h chartype.h tokenzr.h buffer.h thread.h; do
             echo "#include \"../wx_bridge.h\"" > dummy_wx/wx/$h
           done
 
-          # 5. BUILD
+          # 5. REMOVE SOURCE CONFLICTS
+          find common -name "Pcsx2Defs.h" -exec sed -i '' '/typedef std::string wxString;/d' {} +
+          find common -name "Pcsx2Types.h" -exec sed -i '' '/class wxString;/d' {} +
+          find common -type f \( -name "*.h" -o -name "*.cpp" -o -name "*.mm" \) -exec sed -i '' 's/L"Unnamed"/"Unnamed"/g' {} +
+
           cd build
           cmake .. -DCMAKE_BUILD_TYPE=Release \
                    -DCMAKE_SYSTEM_NAME=Darwin \
@@ -125,5 +130,7 @@ jobs:
                    -DCMAKE_CXX_FLAGS="-I${GITHUB_WORKSPACE}/dummy_wx -include ${GITHUB_WORKSPACE}/dummy_wx/wx_bridge.h -Wno-everything" \
                    -DCMAKE_C_FLAGS="-DHAVE_FDOPEN -Wno-everything"
 
+          # Remove SSE flags for ARM
           find . -name "flags.make" -exec sed -i '' 's/-mfpmath=sse//g' {} +
+          
           cmake --build . --config Release --verbose -- -j $(sysctl -n hw.logicalcpu)
