@@ -42,9 +42,8 @@ jobs:
             -DPCSX2_CORE=ON \
             -DENABLE_SETCAP=OFF
 
-      - name: Surgical Fix with Encoding Support
+      - name: Fix ARM Architecture and Strings
         run: |
-          # 1. إعداد البيئة لتجنب أخطاء sed
           export LC_ALL=C
           export LANG=C
           
@@ -52,7 +51,7 @@ jobs:
           git clean -fd
           rm -rf build && mkdir build
           
-          # 2. بناء الجسر المتقدم
+          # 1. Advanced Bridge Setup
           mkdir -p dummy_wx/wx
           cat <<EOF > dummy_wx/wx_bridge.h
           #ifndef WX_BRIDGE_H
@@ -76,16 +75,11 @@ jobs:
               using std::string::string;
               FakeWxString(const char* s) : std::string(s ? s : "") {}
               FakeWxString(const std::string& s) : std::string(s) {}
-              
               const char* wx_str() const { return c_str(); }
               const char* ToUTF8() const { return c_str(); }
               const char* utf8_str() const { return c_str(); }
-              const char* c_str() const { return std::string::c_str(); }
-              
               bool Empty() const { return empty(); }
               bool IsEmpty() const { return empty(); }
-              size_t Length() const { return length(); }
-              
               void Replace(const std::string& old_s, const std::string& new_s) {
                   size_t pos = 0;
                   while((pos = this->find(old_s, pos)) != std::string::npos) {
@@ -93,7 +87,6 @@ jobs:
                       pos += new_s.length();
                   }
               }
-
               static FakeWxString Format(const char* f, ...) {
                   char b[8192]; va_list a; va_start(a, f);
                   vsnprintf(b, sizeof(b), f, a); va_end(a);
@@ -108,24 +101,29 @@ jobs:
             echo "#include \"../wx_bridge.h\"" > dummy_wx/wx/$h
           done
 
-          # 3. تعديل الكود المصدري مع تجاوز أخطاء الترميز
-          # حذف حرف L من أمام النصوص العريضة
+          # 2. String Surgery (Remove L prefix)
           find . -type f \( -name "*.cpp" -o -name "*.h" -o -name "*.inl" -o -name "*.mm" \) -print0 | xargs -0 sed -i '' 's/L\([\"'\'']\)/\1/g'
 
-          # حذف الدوال المكررة التي تسبب Redefinition
+          # 3. Remove duplicate/conflicting declarations
           find common -name "TraceLog.h" -exec sed -i '' '/const wxChar\* fmt/d' {} +
           find common -name "Console.h" -exec sed -i '' '/const wxChar\* fmt/d' {} +
-          
-          # حذف كتل الدوال التي تستخدم wxChar في ملفات cpp
           find common -name "*.cpp" -exec sed -i '' '/wxChar\* fmt/,/}/d' {} +
 
-          # 4. التكوين والبناء
+          # 4. Configure and FORCE REMOVE SSE FLAGS
           cd build
           cmake .. -DCMAKE_BUILD_TYPE=Release \
                    -DCMAKE_SYSTEM_NAME=Darwin \
                    -DCMAKE_OSX_ARCHITECTURES=arm64 \
                    -DUSE_WXWIDGETS=OFF \
                    -DPCSX2_USE_PCH=OFF \
-                   -DCMAKE_CXX_FLAGS="-I${GITHUB_WORKSPACE}/dummy_wx -Wno-everything"
+                   -DCMAKE_CXX_FLAGS="-I${GITHUB_WORKSPACE}/dummy_wx -Wno-everything -D__ARM_NEON"
           
+          # This command removes all SSE/x86 specific flags from generated makefiles
+          find . -name "flags.make" -exec sed -i '' 's/-msse//g' {} +
+          find . -name "flags.make" -exec sed -i '' 's/-msse2//g' {} +
+          find . -name "flags.make" -exec sed -i '' 's/-msse3//g' {} +
+          find . -name "flags.make" -exec sed -i '' 's/-msse4.1//g' {} +
+          find . -name "flags.make" -exec sed -i '' 's/-mfpmath=sse//g' {} +
+          find . -name "flags.make" -exec sed -i '' 's/-march=native//g' {} +
+
           cmake --build . --config Release -- -j $(sysctl -n hw.logicalcpu)
