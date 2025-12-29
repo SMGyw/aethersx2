@@ -42,29 +42,15 @@ jobs:
             -DPCSX2_CORE=ON \
             -DENABLE_SETCAP=OFF
 
-      - name: Build Core (Fixing WX Header Paths)
+      - name: Ultimate Surgical Fix (Global Strings & Header Cleaning)
         run: |
+          # 1. تنظيف شامل قبل البدء
           git checkout .
           git clean -fd
           rm -rf build && mkdir build
           
-          # 1. FIX MOZILLA NAMESPACE IN CUBEB (Already solved, keeping it)
-          mkdir -p 3rdparty/cubeb/include/mozilla
-          cat <<EOF > 3rdparty/cubeb/include/mozilla/UniquePtr.h
-          #ifndef MOZILLA_UNIQUEPTR_H
-          #define MOZILLA_UNIQUEPTR_H
-          #include <memory>
-          namespace mozilla {
-              template<typename T> using UniquePtr = std::unique_ptr<T>;
-              template<typename T> using DefaultDelete = std::default_delete<T>;
-          }
-          #endif
-          EOF
-
-          # 2. CREATE ROBUST DUMMY WX STRUCTURE
-          # يجب أن يكون المجلد wx داخل dummy_wx
+          # 2. بناء جسر متكامل يدعم العمليات المطلوبة
           mkdir -p dummy_wx/wx
-          
           cat <<EOF > dummy_wx/wx_bridge.h
           #ifndef WX_BRIDGE_H
           #define WX_BRIDGE_H
@@ -72,83 +58,77 @@ jobs:
           #include <string>
           #include <vector>
           #include <stdarg.h>
-          #include <memory>
+          #include <algorithm>
 
           typedef char wxChar;
           #define _T(x) x
           #define wxT(x) x
           #define _(x) x
+          #define __TFILE__ __FILE__
+          #define WX_STR(x) x
+          #define wxEmptyString FakeWxString("")
 
           class FakeWxString : public std::string {
           public:
               using std::string::string;
               FakeWxString(const char* s) : std::string(s ? s : "") {}
-              FakeWxString(const wchar_t* ws) : std::string("") {}
+              FakeWxString(const std::string& s) : std::string(s) {}
+              
               const char* wx_str() const { return c_str(); }
               const char* ToUTF8() const { return c_str(); }
+              const char* utf8_str() const { return c_str(); }
+              const char* c_str() const { return std::string::c_str(); }
+              
               bool Empty() const { return empty(); }
               bool IsEmpty() const { return empty(); }
               size_t Length() const { return length(); }
+              
+              void Replace(const std::string& old_s, const std::string& new_s) {
+                  size_t pos = 0;
+                  while((pos = this->find(old_s, pos)) != std::string::npos) {
+                      this->replace(pos, old_s.length(), new_s);
+                      pos += new_s.length();
+                  }
+              }
+
               static FakeWxString Format(const char* f, ...) {
-                  char b[4096]; va_list a; va_start(a, f);
+                  char b[8192]; va_list a; va_start(a, f);
                   vsnprintf(b, sizeof(b), f, a); va_end(a);
                   return FakeWxString(b);
               }
           };
 
           #define wxString FakeWxString
-          #define wxEmptyString FakeWxString("")
-          
-          struct wxCharBuffer {
-              std::string s;
-              wxCharBuffer(const char* str = "") : s(str?str:"") {}
-              const char* data() const { return s.c_str(); }
-              operator const char*() const { return s.c_str(); }
-          };
-
-          typedef int wxStringTokenizerMode;
-          #define wxTOKEN_RET_EMPTY_ALL 0
-          class wxStringTokenizer {
-          public:
-              bool HasMoreTokens() const { return false; }
-              FakeWxString GetNextToken() { return ""; }
-          };
-
-          typedef std::vector<FakeWxString> wxArrayString;
-          struct wxPoint { int x, y; };
-          struct wxSize { int w, h; };
           #endif
           EOF
 
-          # إنشاء ملفات الهيدر الوهمية داخل مجلد wx
+          # إنشاء ملفات الترويسة الوهمية
           for h in string.h log.h setup.h intl.h crt.h filefn.h config.h chartype.h tokenzr.h buffer.h thread.h; do
             echo "#include \"../wx_bridge.h\"" > dummy_wx/wx/$h
           done
 
-          # 3. SOURCE CODE SURGERY
-          # حذف الدوال التي تسبب تكرار التعريف
-          find common -name "StringHelpers.h" -exec sed -i '' '/const wxChar\* psz/d' {} +
-          find common -name "StringHelpers.h" -exec sed -i '' '/const wxChar\* fmt/d' {} +
-          find common -name "Console.h" -exec sed -i '' '/const wxChar\* fmt/d' {} +
+          # 3. تعديل الكود المصدري عالمياً (الجزء الأهم)
           
-          find common -name "Pcsx2Defs.h" -exec sed -i '' '/typedef std::string wxString;/d' {} +
-          find common -name "Pcsx2Types.h" -exec sed -i '' '/class wxString;/d' {} +
-          find common -type f \( -name "*.h" -o -name "*.cpp" -o -name "*.mm" \) -exec sed -i '' 's/L"Unnamed"/"Unnamed"/g' {} +
+          # أ) تحويل كل النصوص العريضة L"..." إلى نصوص عادية "..."
+          find . -type f \( -name "*.cpp" -o -name "*.h" -o -name "*.inl" -o -name "*.mm" \) -exec sed -i '' 's/L\([\"'\'']\)/\1/g' {} +
 
-          # 4. ZLIB CONFLICT FIX
-          Z_FILE="3rdparty/libchdr/libchdr/deps/zlib-1.2.11/zutil.h"
-          [ -f "$Z_FILE" ] && sed -i '' '/#        define fdopen/d' "$Z_FILE"
+          # ب) حذف تعريفات wxChar المكررة التي تسبب Redefinition
+          # سنقوم بحذف الأسطر التي تحتوي على دوال تستخدم wxChar* في الملفات التي سببت أخطاء
+          sed -i '' '/wxChar\* fmt/d' common/TraceLog.h
+          sed -i '' '/wxChar\* fmt/d' common/Console.h
+          
+          # ج) حل مشكلة Redefinition في ملف Console.cpp و TraceLog.cpp
+          # سنحذف كتل الدوال الكاملة التي تستخدم wxChar
+          find common -name "*.cpp" -exec sed -i '' '/FormatV(const wxChar\*/,/^}/d' {} +
+          find common -name "*.cpp" -exec sed -i '' '/Write(const wxChar\*/,/^}/d' {} +
 
-          # 5. BUILD WITH EXPLICIT DUMMY_WX PATH
+          # 4. البدء بالبناء مع تعطيل PCH (لأنها تسبب مشاكل مع تعديلاتنا)
           cd build
           cmake .. -DCMAKE_BUILD_TYPE=Release \
                    -DCMAKE_SYSTEM_NAME=Darwin \
                    -DCMAKE_OSX_ARCHITECTURES=arm64 \
                    -DUSE_WXWIDGETS=OFF \
-                   -DUSE_VULKAN=ON \
                    -DPCSX2_USE_PCH=OFF \
-                   -DCMAKE_CXX_FLAGS="-I${GITHUB_WORKSPACE}/dummy_wx -Wno-everything" \
-                   -DCMAKE_C_FLAGS="-DHAVE_FDOPEN -Wno-everything"
-
-          find . -name "flags.make" -exec sed -i '' 's/-mfpmath=sse//g' {} +
-          cmake --build . --config Release --verbose -- -j $(sysctl -n hw.logicalcpu)
+                   -DCMAKE_CXX_FLAGS="-I${GITHUB_WORKSPACE}/dummy_wx -Wno-everything -DwxString=FakeWxString"
+          
+          cmake --build . --config Release -- -j $(sysctl -n hw.logicalcpu)
