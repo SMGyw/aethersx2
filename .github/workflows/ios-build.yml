@@ -42,14 +42,17 @@ jobs:
             -DPCSX2_CORE=ON \
             -DENABLE_SETCAP=OFF
 
-      - name: Ultimate Surgical Fix (Global Strings & Header Cleaning)
+      - name: Surgical Fix with Encoding Support
         run: |
-          # 1. تنظيف شامل قبل البدء
+          # 1. إعداد البيئة لتجنب أخطاء sed
+          export LC_ALL=C
+          export LANG=C
+          
           git checkout .
           git clean -fd
           rm -rf build && mkdir build
           
-          # 2. بناء جسر متكامل يدعم العمليات المطلوبة
+          # 2. بناء الجسر المتقدم
           mkdir -p dummy_wx/wx
           cat <<EOF > dummy_wx/wx_bridge.h
           #ifndef WX_BRIDGE_H
@@ -97,38 +100,32 @@ jobs:
                   return FakeWxString(b);
               }
           };
-
           #define wxString FakeWxString
           #endif
           EOF
 
-          # إنشاء ملفات الترويسة الوهمية
           for h in string.h log.h setup.h intl.h crt.h filefn.h config.h chartype.h tokenzr.h buffer.h thread.h; do
             echo "#include \"../wx_bridge.h\"" > dummy_wx/wx/$h
           done
 
-          # 3. تعديل الكود المصدري عالمياً (الجزء الأهم)
-          
-          # أ) تحويل كل النصوص العريضة L"..." إلى نصوص عادية "..."
-          find . -type f \( -name "*.cpp" -o -name "*.h" -o -name "*.inl" -o -name "*.mm" \) -exec sed -i '' 's/L\([\"'\'']\)/\1/g' {} +
+          # 3. تعديل الكود المصدري مع تجاوز أخطاء الترميز
+          # حذف حرف L من أمام النصوص العريضة
+          find . -type f \( -name "*.cpp" -o -name "*.h" -o -name "*.inl" -o -name "*.mm" \) -print0 | xargs -0 sed -i '' 's/L\([\"'\'']\)/\1/g'
 
-          # ب) حذف تعريفات wxChar المكررة التي تسبب Redefinition
-          # سنقوم بحذف الأسطر التي تحتوي على دوال تستخدم wxChar* في الملفات التي سببت أخطاء
-          sed -i '' '/wxChar\* fmt/d' common/TraceLog.h
-          sed -i '' '/wxChar\* fmt/d' common/Console.h
+          # حذف الدوال المكررة التي تسبب Redefinition
+          find common -name "TraceLog.h" -exec sed -i '' '/const wxChar\* fmt/d' {} +
+          find common -name "Console.h" -exec sed -i '' '/const wxChar\* fmt/d' {} +
           
-          # ج) حل مشكلة Redefinition في ملف Console.cpp و TraceLog.cpp
-          # سنحذف كتل الدوال الكاملة التي تستخدم wxChar
-          find common -name "*.cpp" -exec sed -i '' '/FormatV(const wxChar\*/,/^}/d' {} +
-          find common -name "*.cpp" -exec sed -i '' '/Write(const wxChar\*/,/^}/d' {} +
+          # حذف كتل الدوال التي تستخدم wxChar في ملفات cpp
+          find common -name "*.cpp" -exec sed -i '' '/wxChar\* fmt/,/}/d' {} +
 
-          # 4. البدء بالبناء مع تعطيل PCH (لأنها تسبب مشاكل مع تعديلاتنا)
+          # 4. التكوين والبناء
           cd build
           cmake .. -DCMAKE_BUILD_TYPE=Release \
                    -DCMAKE_SYSTEM_NAME=Darwin \
                    -DCMAKE_OSX_ARCHITECTURES=arm64 \
                    -DUSE_WXWIDGETS=OFF \
                    -DPCSX2_USE_PCH=OFF \
-                   -DCMAKE_CXX_FLAGS="-I${GITHUB_WORKSPACE}/dummy_wx -Wno-everything -DwxString=FakeWxString"
+                   -DCMAKE_CXX_FLAGS="-I${GITHUB_WORKSPACE}/dummy_wx -Wno-everything"
           
           cmake --build . --config Release -- -j $(sysctl -n hw.logicalcpu)
