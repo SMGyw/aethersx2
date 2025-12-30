@@ -42,17 +42,17 @@ jobs:
             -DPCSX2_CORE=ON \
             -DENABLE_SETCAP=OFF
 
-      - name: Precise String Fix and Architecture Setup
+      - name: Fix zlib Conflict and Architecture
         run: |
           export LC_ALL=C
           export LANG=C
           
-          # 1. Clean environment
+          # 1. Clean and Setup
           git checkout .
           git clean -fd
           rm -rf build && mkdir build
           
-          # 2. Bridge for WxWidgets removal
+          # 2. Bridge for WxWidgets
           mkdir -p dummy_wx/wx
           cat <<EOF > dummy_wx/wx_bridge.h
           #ifndef WX_BRIDGE_H
@@ -66,24 +66,18 @@ jobs:
           #define _T(x) x
           #define wxT(x) x
           #define _(x) x
-          #define __TFILE__ __FILE__
           #define WX_STR(x) x
           #define wxEmptyString FakeWxString("")
           class FakeWxString : public std::string {
           public:
               using std::string::string;
               FakeWxString(const char* s) : std::string(s ? s : "") {}
-              FakeWxString(const std::string& s) : std::string(s) {}
-              const char* wx_str() const { return c_str(); }
-              const char* ToUTF8() const { return c_str(); }
               const char* utf8_str() const { return c_str(); }
-              bool Empty() const { return empty(); }
-              bool IsEmpty() const { return empty(); }
-              void Replace(const std::string& old_s, const std::string& new_s) {
-                  size_t pos = 0;
-                  while((pos = this->find(old_s, pos)) != std::string::npos) {
-                      this->replace(pos, old_s.length(), new_s);
-                      pos += new_s.length();
+              void Replace(const std::string& o, const std::string& n) {
+                  size_t p = 0;
+                  while((p = this->find(o, p)) != std::string::npos) {
+                      this->replace(p, o.length(), n);
+                      p += n.length();
                   }
               }
               static FakeWxString Format(const char* f, ...) {
@@ -100,16 +94,22 @@ jobs:
             echo "#include \"../wx_bridge.h\"" > dummy_wx/wx/$h
           done
 
-          # 3. SAFE String Surgery (Only Target L"string" and ignore 3rdparty)
-          # We use a more specific regex to avoid touching character literals like 'L'
+          # 3. FIX ZLIB CONFLICT (The specific fix for your error)
+          # We comment out the problematic fdopen define in zlib
+          ZUTIL_H="3rdparty/libchdr/libchdr/deps/zlib-1.2.11/zutil.h"
+          if [ -f "$ZUTIL_H" ]; then
+            sed -i '' 's/#\s*define\s*fdopen(fd,mode)\s*NULL/\/* #define fdopen disabled *\//g' "$ZUTIL_H"
+          fi
+
+          # 4. Safe String Surgery (Avoid 3rdparty)
           find . -type d -path "./3rdparty" -prune -o -type f \( -name "*.cpp" -o -name "*.h" -o -name "*.inl" -o -name "*.mm" \) -print0 | xargs -0 sed -i '' 's/L\(\"\)/ \1/g'
 
-          # 4. Remove duplicate/conflicting declarations in common
+          # 5. Remove duplicate declarations
           find common -name "TraceLog.h" -exec sed -i '' '/const wxChar\* fmt/d' {} +
           find common -name "Console.h" -exec sed -i '' '/const wxChar\* fmt/d' {} +
           find common -name "*.cpp" -exec sed -i '' '/wxChar\* fmt/,/}/d' {} +
 
-          # 5. Configure and FORCE REMOVE SSE FLAGS
+          # 6. Configure and Build
           cd build
           cmake .. -DCMAKE_BUILD_TYPE=Release \
                    -DCMAKE_SYSTEM_NAME=Darwin \
@@ -118,11 +118,8 @@ jobs:
                    -DPCSX2_USE_PCH=OFF \
                    -DCMAKE_CXX_FLAGS="-I${GITHUB_WORKSPACE}/dummy_wx -Wno-everything -D__ARM_NEON"
           
-          # Remove architecture flags that cause "unknown FP unit 'sse'"
-          find . -name "flags.make" -exec sed -i '' 's/-msse//g' {} +
-          find . -name "flags.make" -exec sed -i '' 's/-msse2//g' {} +
-          find . -name "flags.make" -exec sed -i '' 's/-msse3//g' {} +
-          find . -name "flags.make" -exec sed -i '' 's/-msse4.1//g' {} +
+          # Force remove SSE flags from all makefiles
+          find . -name "flags.make" -exec sed -i '' 's/-msse[0-9.]*//g' {} +
           find . -name "flags.make" -exec sed -i '' 's/-mfpmath=sse//g' {} +
           find . -name "flags.make" -exec sed -i '' 's/-march=native//g' {} +
 
