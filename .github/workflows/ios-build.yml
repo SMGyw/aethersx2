@@ -42,17 +42,17 @@ jobs:
             -DPCSX2_CORE=ON \
             -DENABLE_SETCAP=OFF
 
-      - name: Fix zlib Conflict and Architecture
+      - name: Solve zlib fdopen Conflict
         run: |
           export LC_ALL=C
           export LANG=C
           
-          # 1. Clean and Setup
+          # 1. Clean Environment
           git checkout .
           git clean -fd
           rm -rf build && mkdir build
           
-          # 2. Bridge for WxWidgets
+          # 2. Bridge for WxWidgets Removal
           mkdir -p dummy_wx/wx
           cat <<EOF > dummy_wx/wx_bridge.h
           #ifndef WX_BRIDGE_H
@@ -73,13 +73,6 @@ jobs:
               using std::string::string;
               FakeWxString(const char* s) : std::string(s ? s : "") {}
               const char* utf8_str() const { return c_str(); }
-              void Replace(const std::string& o, const std::string& n) {
-                  size_t p = 0;
-                  while((p = this->find(o, p)) != std::string::npos) {
-                      this->replace(p, o.length(), n);
-                      p += n.length();
-                  }
-              }
               static FakeWxString Format(const char* f, ...) {
                   char b[8192]; va_list a; va_start(a, f);
                   vsnprintf(b, sizeof(b), f, a); va_end(a);
@@ -94,14 +87,11 @@ jobs:
             echo "#include \"../wx_bridge.h\"" > dummy_wx/wx/$h
           done
 
-          # 3. FIX ZLIB CONFLICT (The specific fix for your error)
-          # We comment out the problematic fdopen define in zlib
-          ZUTIL_H="3rdparty/libchdr/libchdr/deps/zlib-1.2.11/zutil.h"
-          if [ -f "$ZUTIL_H" ]; then
-            sed -i '' 's/#\s*define\s*fdopen(fd,mode)\s*NULL/\/* #define fdopen disabled *\//g' "$ZUTIL_H"
-          fi
+          # 3. CRITICAL: Disable the problematic fdopen macro in zlib
+          # This specifically targets the error in your log
+          find 3rdparty/libchdr -name "zutil.h" -exec sed -i '' 's/#\s*define\s*fdopen(fd,mode)\s*NULL/\/* disabled fdopen *\//g' {} +
 
-          # 4. Safe String Surgery (Avoid 3rdparty)
+          # 4. Precise String Surgery (Safe for 3rdparty)
           find . -type d -path "./3rdparty" -prune -o -type f \( -name "*.cpp" -o -name "*.h" -o -name "*.inl" -o -name "*.mm" \) -print0 | xargs -0 sed -i '' 's/L\(\"\)/ \1/g'
 
           # 5. Remove duplicate declarations
@@ -109,7 +99,7 @@ jobs:
           find common -name "Console.h" -exec sed -i '' '/const wxChar\* fmt/d' {} +
           find common -name "*.cpp" -exec sed -i '' '/wxChar\* fmt/,/}/d' {} +
 
-          # 6. Configure and Build
+          # 6. Configure and Force Remove Architecture Flags
           cd build
           cmake .. -DCMAKE_BUILD_TYPE=Release \
                    -DCMAKE_SYSTEM_NAME=Darwin \
@@ -118,7 +108,7 @@ jobs:
                    -DPCSX2_USE_PCH=OFF \
                    -DCMAKE_CXX_FLAGS="-I${GITHUB_WORKSPACE}/dummy_wx -Wno-everything -D__ARM_NEON"
           
-          # Force remove SSE flags from all makefiles
+          # Clean all generated makefiles from x86/SSE flags
           find . -name "flags.make" -exec sed -i '' 's/-msse[0-9.]*//g' {} +
           find . -name "flags.make" -exec sed -i '' 's/-mfpmath=sse//g' {} +
           find . -name "flags.make" -exec sed -i '' 's/-march=native//g' {} +
