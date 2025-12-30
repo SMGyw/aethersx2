@@ -42,17 +42,17 @@ jobs:
             -DPCSX2_CORE=ON \
             -DENABLE_SETCAP=OFF
 
-      - name: Fix Cubeb Mozilla Headers and Build
+      - name: Hard Fix Cubeb and Build
         run: |
           export LC_ALL=C
           export LANG=C
           
-          # 1. Reset and Clean
+          # 1. Clean Environment
           git checkout .
           git clean -fd
           rm -rf build && mkdir build
           
-          # 2. Bridge for WxWidgets Removal
+          # 2. Bridge for WxWidgets
           mkdir -p dummy_wx/wx
           cat <<EOF > dummy_wx/wx_bridge.h
           #ifndef WX_BRIDGE_H
@@ -87,38 +87,39 @@ jobs:
             echo "#include \"../wx_bridge.h\"" > dummy_wx/wx/$h
           done
 
-          # 3. GLOBAL FORCE DELETE for fdopen (zlib fix from previous step)
+          # 3. Solve zlib fdopen conflict
           find . -name "zutil.h" -exec sed -i '' '/define fdopen/d' {} +
-          find . -name "gzguts.h" -exec sed -i '' '/define fdopen/d' {} +
 
-          # 4. FIX CUBEB MOZILLA ERROR (New Fix)
-          # Replace Mozilla's UniquePtr with standard C++ unique_ptr
+          # 4. SURGICAL FIX FOR CUBEB MOZILLA REFERENCES
+          # Replace includes
           find 3rdparty/cubeb -name "*.h" -o -name "*.cpp" | xargs sed -i '' 's/#include "mozilla\/UniquePtr.h"/#include <memory>/g'
+          find 3rdparty/cubeb -name "*.h" -o -name "*.cpp" | xargs sed -i '' 's/#include "mozilla\/Move.h"//g'
+          find 3rdparty/cubeb -name "*.h" -o -name "*.cpp" | xargs sed -i '' 's/#include "mozilla\/Assertions.h"//g'
+          
+          # Replace types and namespaces
           find 3rdparty/cubeb -name "*.h" -o -name "*.cpp" | xargs sed -i '' 's/mozilla::UniquePtr/std::unique_ptr/g'
           find 3rdparty/cubeb -name "*.h" -o -name "*.cpp" | xargs sed -i '' 's/mozilla::MakeUnique/std::make_unique/g'
-          # Also disable a common macro that conflicts in cubeb_resampler
+          find 3rdparty/cubeb -name "*.h" -o -name "*.cpp" | xargs sed -i '' 's/using mozilla::DefaultDelete;/using std::default_delete;/g'
+          find 3rdparty/cubeb -name "*.h" -o -name "*.cpp" | xargs sed -i '' 's/mozilla::DefaultDelete/std::default_delete/g'
+          find 3rdparty/cubeb -name "*.h" -o -name "*.cpp" | xargs sed -i '' 's/mozilla::Move/std::move/g'
+
+          # Disable the conflicting macro in cubeb_resampler_internal.h
           find 3rdparty/cubeb -name "cubeb_resampler_internal.h" -exec sed -i '' 's/#define unique_ptr UniquePtr/\/\/ macro disabled/g' {} +
 
-          # 5. Safe String Surgery (Ignore 3rdparty)
+          # 5. Precise String Surgery
           find . -type d -path "./3rdparty" -prune -o -type f \( -name "*.cpp" -o -name "*.h" -o -name "*.inl" -o -name "*.mm" \) -print0 | xargs -0 sed -i '' 's/L\(\"\)/ \1/g'
 
-          # 6. Remove duplicate declarations in common
-          find common -name "TraceLog.h" -exec sed -i '' '/const wxChar\* fmt/d' {} +
-          find common -name "Console.h" -exec sed -i '' '/const wxChar\* fmt/d' {} +
-          find common -name "*.cpp" -exec sed -i '' '/wxChar\* fmt/,/}/d' {} +
-
-          # 7. Configure and Force ARM64
+          # 6. Configure and Build for ARM64
           cd build
           cmake .. -DCMAKE_BUILD_TYPE=Release \
                    -DCMAKE_SYSTEM_NAME=Darwin \
                    -DCMAKE_OSX_ARCHITECTURES=arm64 \
                    -DUSE_WXWIDGETS=OFF \
                    -DPCSX2_USE_PCH=OFF \
-                   -DCMAKE_CXX_FLAGS="-I${GITHUB_WORKSPACE}/dummy_wx -Wno-everything -D__ARM_NEON"
+                   -DCMAKE_CXX_FLAGS="-I${GITHUB_WORKSPACE}/dummy_wx -Wno-everything -D__ARM_NEON -std=c++17"
           
-          # Clean SSE flags
+          # Force clean build flags from SSE
           find . -name "flags.make" -exec sed -i '' 's/-msse[0-9.]*//g' {} +
           find . -name "flags.make" -exec sed -i '' 's/-mfpmath=sse//g' {} +
-          find . -name "flags.make" -exec sed -i '' 's/-march=native//g' {} +
 
           cmake --build . --config Release -- -j $(sysctl -n hw.logicalcpu)
