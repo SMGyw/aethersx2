@@ -42,12 +42,12 @@ jobs:
             -DPCSX2_CORE=ON \
             -DENABLE_SETCAP=OFF
 
-      - name: Unified Pro Fix and Build
+      - name: Ultimate Cubeb Fix and Build
         shell: bash
         run: |
           export PATH="/usr/bin:/bin:/usr/local/bin:$PATH"
           
-          # 1. بناء الجسر (نفس الكود السابق لضمان وجوده)
+          # 1. بناء الجسر (نفس الكود السابق)
           mkdir -p dummy_wx/wx
           cat <<EOF > dummy_wx/wx_bridge.h
           #ifndef WX_BRIDGE_H
@@ -84,29 +84,30 @@ jobs:
             echo '#include "../wx_bridge.h"' > dummy_wx/wx/$h
           done
 
-          # 2. التعطيل الذكي لـ Cubeb (بدلاً من الحذف العشوائي)
-          # سنقوم بتعطيل السطر الذي يضيف مجلد cubeb في ملف 3rdparty/CMakeLists.txt
-          if [ -f 3rdparty/CMakeLists.txt ]; then
-             /usr/bin/sed -i '' 's/add_subdirectory(cubeb)/# disabled cubeb/g' 3rdparty/CMakeLists.txt
+          # 2. الحل الجذري لمشكلة Cubeb (28%)
+          # سنقوم بمسح محتوى ملف CMakeLists.txt الخاص بـ cubeb تماماً
+          # هذا سيجعل CMake يتخطاه دون إعطاء أخطاء
+          if [ -f 3rdparty/cubeb/CMakeLists.txt ]; then
+             echo "project(cubeb)" > 3rdparty/cubeb/CMakeLists.txt
+             echo "add_library(cubeb INTERFACE)" >> 3rdparty/cubeb/CMakeLists.txt
           fi
 
-          # 3. جراحة zlib وتعديلات الملفات (المسارات المطلقة)
+          # 3. تنظيف zlib وتعديلات الملفات
           /usr/bin/find 3rdparty -name "zutil.h" -exec /usr/bin/sed -i '' '/#[\ ]*define[\ ]*fdopen/d' {} +
           /usr/bin/sed -i '' 's/class wxString;/#include "wx_bridge.h"/' common/Pcsx2Types.h
           /usr/bin/find common -name "*.h" -exec /usr/bin/sed -i '' '/class wxString;/d' {} +
 
-          # 4. تشغيل CMake مع خيارات حازمة
+          # 4. تشغيل CMake
           cd build
           cmake .. -DCMAKE_BUILD_TYPE=Release \
                    -DCMAKE_OSX_ARCHITECTURES=arm64 \
                    -DHAVE_FDOPEN=1 \
                    -DUSE_CUBEB=OFF \
                    -DBUILD_CUBEB=OFF \
-                   -DENABLE_SETCAP=OFF \
                    -DCMAKE_CXX_FLAGS="-w -I${GITHUB_WORKSPACE}/dummy_wx" \
                    -DCMAKE_C_FLAGS="-w -I${GITHUB_WORKSPACE}/dummy_wx"
 
-          # 5. تنظيف الـ Flags المتبقية
+          # 5. تنظيف SSE
           /usr/bin/find . -name "flags.make" -exec /usr/bin/sed -i '' 's/-msse[0-9.]*//g' {} +
           /usr/bin/find . -name "flags.make" -exec /usr/bin/sed -i '' 's/-mfpmath=sse//g' {} +
 
