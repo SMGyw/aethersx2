@@ -45,10 +45,9 @@ jobs:
       - name: Unified Pro Fix and Build
         shell: bash
         run: |
-          # التأكد من وجود المسارات الأساسية للأوامر
           export PATH="/usr/bin:/bin:/usr/local/bin:$PATH"
           
-          # 1. إنشاء الجسر (نفس الكود السابق)
+          # 1. بناء الجسر (نفس الكود السابق لضمان وجوده)
           mkdir -p dummy_wx/wx
           cat <<EOF > dummy_wx/wx_bridge.h
           #ifndef WX_BRIDGE_H
@@ -81,31 +80,35 @@ jobs:
           #endif
           EOF
 
-          # 2. إنشاء ملفات الترويسة الوهمية [cite: 4]
           for h in string.h log.h intl.h crt.h tokenzr.h filefn.h; do
             echo '#include "../wx_bridge.h"' > dummy_wx/wx/$h
           done
 
-          # 3. استخدام المسار المطلق لـ sed لضمان عمله (/usr/bin/sed)
-          # تعطيل Cubeb وتعديل ملفات common [cite: 3, 6]
-          /usr/bin/find . -name "CMakeLists.txt" -exec /usr/bin/sed -i '' '/cubeb/d' {} +
+          # 2. التعطيل الذكي لـ Cubeb (بدلاً من الحذف العشوائي)
+          # سنقوم بتعطيل السطر الذي يضيف مجلد cubeb في ملف 3rdparty/CMakeLists.txt
+          if [ -f 3rdparty/CMakeLists.txt ]; then
+             /usr/bin/sed -i '' 's/add_subdirectory(cubeb)/# disabled cubeb/g' 3rdparty/CMakeLists.txt
+          fi
+
+          # 3. جراحة zlib وتعديلات الملفات (المسارات المطلقة)
           /usr/bin/find 3rdparty -name "zutil.h" -exec /usr/bin/sed -i '' '/#[\ ]*define[\ ]*fdopen/d' {} +
           /usr/bin/sed -i '' 's/class wxString;/#include "wx_bridge.h"/' common/Pcsx2Types.h
           /usr/bin/find common -name "*.h" -exec /usr/bin/sed -i '' '/class wxString;/d' {} +
 
-          # 4. تشغيل CMake مع تفعيل HAVE_FDOPEN [cite: 1]
+          # 4. تشغيل CMake مع خيارات حازمة
           cd build
           cmake .. -DCMAKE_BUILD_TYPE=Release \
                    -DCMAKE_OSX_ARCHITECTURES=arm64 \
                    -DHAVE_FDOPEN=1 \
                    -DUSE_CUBEB=OFF \
                    -DBUILD_CUBEB=OFF \
+                   -DENABLE_SETCAP=OFF \
                    -DCMAKE_CXX_FLAGS="-w -I${GITHUB_WORKSPACE}/dummy_wx" \
                    -DCMAKE_C_FLAGS="-w -I${GITHUB_WORKSPACE}/dummy_wx"
 
-          # 5. تنظيف SSE باستخدام المسار المطلق [cite: 1]
+          # 5. تنظيف الـ Flags المتبقية
           /usr/bin/find . -name "flags.make" -exec /usr/bin/sed -i '' 's/-msse[0-9.]*//g' {} +
           /usr/bin/find . -name "flags.make" -exec /usr/bin/sed -i '' 's/-mfpmath=sse//g' {} +
 
-          # 6. البناء النهائي
+          # 6. البناء
           make -j$(sysctl -n hw.logicalcpu)
