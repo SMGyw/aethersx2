@@ -20,8 +20,6 @@ if(APPLE)
     
     # 3. Suppress wxWidgets Redefinitions (Fix for 31% error)
     # We force the compiler to treat wxString as a standard string to bypass UI dependencies
-    add_compile_definitions(WXSTRING_DEFINED)
-    add_compile_definitions(wxString=std::string)
     
     # 4. Compiler Flags - Ignore warnings and set target
     set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -w")
