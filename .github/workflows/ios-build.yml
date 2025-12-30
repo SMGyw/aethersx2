@@ -42,156 +42,67 @@ jobs:
             -DPCSX2_CORE=ON \
             -DENABLE_SETCAP=OFF
 
-      - name: Advanced Fix - Pro Mode
+      - name: Surgical Fix - Based on Uploaded Files
         run: |
-          export LC_ALL=C
-          export LANG=C
-          
-          # 1. Clean Slate
-          git checkout .
-          git clean -fd
-          rm -rf build && mkdir build
-          
-          # 2. THE ADVANCED WX BRIDGE
+          # 1. تنظيف التعريفات المتضاربة من CMakeLists.txt
+          sed -i '' '/add_compile_definitions(WXSTRING_DEFINED)/d' CMakeLists.txt
+          sed -i '' '/add_compile_definitions(wxString=std::string)/d' CMakeLists.txt
+
+          # 2. بناء جسر wxWidgets احترافي يحاكي الدوال المطلوبة في StringHelpers.h
           mkdir -p dummy_wx/wx
           cat <<EOF > dummy_wx/wx_bridge.h
           #ifndef WX_BRIDGE_H
           #define WX_BRIDGE_H
-          
-          #include <stdio.h>
-          #include <stdlib.h>
           #include <string>
-          #include <vector>
-          #include <stdarg.h>
-          #include <algorithm>
-          #include <memory>
           #include <cstring>
-          
-          // 1. TRICK THE COMPILER: define wxChar as wchar_t to prevent redefinition errors
-          // The code has overloads for both char* and wxChar*. Making them different types fixes the conflict.
+          #include <vector>
+
+          // تعريف wxChar كـ wchar_t لحل مشكلة Overloading في FastFormatUnicode
           typedef wchar_t wxChar;
-          
-          // 2. Fix wxCharBuffer (Must implicitly convert to const char*)
+
+          // محاكاة wxCharBuffer المطلوبة في StringHelpers.h
           struct wxCharBuffer {
-              std::string data;
-              wxCharBuffer(const std::string& s) : data(s) {}
-              wxCharBuffer(const char* s) : data(s ? s : "") {}
-              operator const char*() const { return data.c_str(); }
-              const char* release() { return strdup(data.c_str()); }
+              std::string internal_data;
+              wxCharBuffer() {}
+              wxCharBuffer(const char* s) : internal_data(s ? s : "") {}
+              const char* data() const { return internal_data.c_str(); }
+              operator const char*() const { return internal_data.c_str(); }
           };
-          
-          // 3. Enum & Types
-          enum wxStringTokenizerMode { wxTOKEN_RET_EMPTY_ALL };
-          typedef std::vector<std::string> wxArrayString;
-          
-          // 4. Missing Macros
-          #define _T(x) x
-          #define wxT(x) x
-          #define _(x) x
-          #define WX_STR(x) x
-          #define __TFILE__ __FILE__  // Fixes the undeclared identifier error
-          
-          // 5. The Powerhouse FakeWxString
-          class FakeWxString : public std::string {
+
+          // محاكاة wxString لتشمل ToUTF8() و Length() و Replace()
+          class wxString : public std::string {
           public:
               using std::string::string;
-              
-              FakeWxString() : std::string("") {}
-              FakeWxString(const char* s) : std::string(s ? s : "") {}
-              FakeWxString(const std::string& s) : std::string(s) {}
-              
-              // Allow construction from wxCharBuffer
-              FakeWxString(const wxCharBuffer& b) : std::string(b.data) {}
-              
-              // Methods required by PCSX2
-              const char* ToUTF8() const { return c_str(); }
-              const char* utf8_str() const { return c_str(); }
-              const char* wx_str() const { return c_str(); }
-              bool IsEmpty() const { return empty(); }
-              size_t Length() const { return length(); } // Fixes .Length() error
-              
-              // Fixes .Replace() error
-              size_t Replace(const char* oldStr, const char* newStr, bool all = true) {
-                  size_t count = 0;
-                  size_t oldLen = strlen(oldStr);
-                  size_t newLen = strlen(newStr);
+              wxString(const std::string& s) : std::string(s) {}
+              const wxCharBuffer ToUTF8() const { return wxCharBuffer(this->c_str()); }
+              size_t Length() const { return this->length(); }
+              const char* c_str() const { return std::string::c_str(); }
+              // إضافة Replace المطلوبة في Console.cpp
+              void Replace(const std::string& oldS, const std::string& newS) {
                   size_t pos = 0;
-                  while ((pos = find(oldStr, pos)) != std::string::npos) {
-                      replace(pos, oldLen, newStr);
-                      pos += newLen;
-                      count++;
-                      if (!all) break;
+                  while((pos = this->find(oldS, pos)) != std::string::npos) {
+                      this->replace(pos, oldS.length(), newS);
+                      pos += newS.length();
                   }
-                  return count;
-              }
-              
-              // Static formatter
-              static FakeWxString Format(const char* f, ...) {
-                  char b[8192]; 
-                  va_list a; 
-                  va_start(a, f);
-                  vsnprintf(b, sizeof(b), f, a); 
-                  va_end(a);
-                  return FakeWxString(b);
               }
           };
-          
-          // Map wxString
-          #define wxString FakeWxString
-          #define wxEmptyString FakeWxString("")
-          
-          // 6. Tokenizer Mock
-          class wxStringTokenizer {
-          public:
-              wxStringTokenizer(const std::string&, const std::string&, wxStringTokenizerMode) {}
-          };
-          
+
+          #define wxT(x) L##x
+          #define _T(x) L##x
+          #define wxEmptyString wxString("")
+          typedef std::vector<wxString> wxArrayString;
+          enum wxStringTokenizerMode { wxTOKEN_RET_EMPTY_ALL };
           #endif
           EOF
 
-          # Populate dummy headers
-          for h in string.h log.h setup.h intl.h crt.h filefn.h config.h chartype.h tokenzr.h buffer.h thread.h; do
-            echo "#include \"../wx_bridge.h\"" > dummy_wx/wx/$h
-          done
-
-          # 3. SURGICAL FIXES
+          # 3. معالجة مشكلة "class wxString;" في Pcsx2Types.h
+          # سنقوم بتحويلها إلى include بدلاً من forward declaration
+          sed -i '' 's/class wxString;/#include "wx_bridge.h"/' common/Pcsx2Types.h
           
-          # Fix Pcsx2Types.h missing string include
-          sed -i '' '1i\
-          #include <string>
-          ' common/Pcsx2Types.h
-
-          # Remove 'class wxString;' forward declarations
+          # 4. حذف أي تعريفات مكررة لـ wxString في الملفات الأخرى
           find common -name "*.h" -exec sed -i '' '/class wxString;/d' {} +
-          find common -name "Pcsx2Defs.h" -exec sed -i '' '/typedef std::string wxString;/d' {} +
-          
-          # Fix Cubeb & Zlib (Standard fixes)
-          find . -name "zutil.h" -exec sed -i '' '/define fdopen/d' {} +
-          find 3rdparty/cubeb -name "*.h" -o -name "*.cpp" | xargs sed -i '' 's/#include "mozilla\/UniquePtr.h"/#include <memory>/g'
-          find 3rdparty/cubeb -name "*.h" -o -name "*.cpp" | xargs sed -i '' 's/mozilla::UniquePtr/std::unique_ptr/g'
-          find 3rdparty/cubeb -name "*.h" -o -name "*.cpp" | xargs sed -i '' 's/mozilla::MakeUnique/std::make_unique/g'
-          find 3rdparty/cubeb -name "*.h" -o -name "*.cpp" | xargs sed -i '' 's/using mozilla::DefaultDelete;/using std::default_delete;/g'
-          find 3rdparty/cubeb -name "*.h" -o -name "*.cpp" | xargs sed -i '' 's/using mozilla::UniquePtr;/using std::unique_ptr;/g'
-          find 3rdparty/cubeb -name "*.h" -o -name "*.cpp" | xargs sed -i '' 's/#include "mozilla\/Move.h"//g'
-          find 3rdparty/cubeb -name "*.h" -o -name "*.cpp" | xargs sed -i '' 's/mozilla::Move/std::move/g'
-          find 3rdparty/cubeb -name "cubeb_resampler_internal.h" -exec sed -i '' 's/#define unique_ptr UniquePtr/\/\/ disabled/g' {} +
 
-          # 4. GLOBAL WIDE CHAR REMOVAL (Crucial since we made wxChar = wchar_t)
-          # We need to make sure code doesn't try to assign L"..." to std::string.
-          # The bridge handles char, so we strip L prefixes to force everything to char.
-          find . -type d -path "./3rdparty" -prune -o -type f \( -name "*.cpp" -o -name "*.h" -o -name "*.inl" -o -name "*.mm" \) -print0 | xargs -0 sed -i '' 's/L\(\"\)/ \1/g'
-
-          # 5. Build
+          # 5. تشغيل البناء
           cd build
-          cmake .. -DCMAKE_BUILD_TYPE=Release \
-                   -DCMAKE_SYSTEM_NAME=Darwin \
-                   -DCMAKE_OSX_ARCHITECTURES=arm64 \
-                   -DUSE_WXWIDGETS=OFF \
-                   -DPCSX2_USE_PCH=OFF \
-                   -DCMAKE_CXX_FLAGS="-I${GITHUB_WORKSPACE}/dummy_wx -Wno-everything -D__ARM_NEON -std=c++17"
-          
-          # Clean SSE
-          find . -name "flags.make" -exec sed -i '' 's/-msse[0-9.]*//g' {} +
-          find . -name "flags.make" -exec sed -i '' 's/-mfpmath=sse//g' {} +
-
-          cmake --build . --config Release -- -j $(sysctl -n hw.logicalcpu)
+          cmake .. -DCMAKE_CXX_FLAGS="-I${GITHUB_WORKSPACE}/dummy_wx -std=c++17 -w"
+          make -j$(sysctl -n hw.logicalcpu)
