@@ -42,67 +42,22 @@ jobs:
             -DPCSX2_CORE=ON \
             -DENABLE_SETCAP=OFF
 
-      - name: Surgical Fix - Based on Uploaded Files
+      - name: Build and Force ARM NEON
         run: |
-          # 1. تنظيف التعريفات المتضاربة من CMakeLists.txt
-          sed -i '' '/add_compile_definitions(WXSTRING_DEFINED)/d' CMakeLists.txt
-          sed -i '' '/add_compile_definitions(wxString=std::string)/d' CMakeLists.txt
-
-          # 2. بناء جسر wxWidgets احترافي يحاكي الدوال المطلوبة في StringHelpers.h
-          mkdir -p dummy_wx/wx
-          cat <<EOF > dummy_wx/wx_bridge.h
-          #ifndef WX_BRIDGE_H
-          #define WX_BRIDGE_H
-          #include <string>
-          #include <cstring>
-          #include <vector>
-
-          // تعريف wxChar كـ wchar_t لحل مشكلة Overloading في FastFormatUnicode
-          typedef wchar_t wxChar;
-
-          // محاكاة wxCharBuffer المطلوبة في StringHelpers.h
-          struct wxCharBuffer {
-              std::string internal_data;
-              wxCharBuffer() {}
-              wxCharBuffer(const char* s) : internal_data(s ? s : "") {}
-              const char* data() const { return internal_data.c_str(); }
-              operator const char*() const { return internal_data.c_str(); }
-          };
-
-          // محاكاة wxString لتشمل ToUTF8() و Length() و Replace()
-          class wxString : public std::string {
-          public:
-              using std::string::string;
-              wxString(const std::string& s) : std::string(s) {}
-              const wxCharBuffer ToUTF8() const { return wxCharBuffer(this->c_str()); }
-              size_t Length() const { return this->length(); }
-              const char* c_str() const { return std::string::c_str(); }
-              // إضافة Replace المطلوبة في Console.cpp
-              void Replace(const std::string& oldS, const std::string& newS) {
-                  size_t pos = 0;
-                  while((pos = this->find(oldS, pos)) != std::string::npos) {
-                      this->replace(pos, oldS.length(), newS);
-                      pos += newS.length();
-                  }
-              }
-          };
-
-          #define wxT(x) L##x
-          #define _T(x) L##x
-          #define wxEmptyString wxString("")
-          typedef std::vector<wxString> wxArrayString;
-          enum wxStringTokenizerMode { wxTOKEN_RET_EMPTY_ALL };
-          #endif
-          EOF
-
-          # 3. معالجة مشكلة "class wxString;" في Pcsx2Types.h
-          # سنقوم بتحويلها إلى include بدلاً من forward declaration
-          sed -i '' 's/class wxString;/#include "wx_bridge.h"/' common/Pcsx2Types.h
-          
-          # 4. حذف أي تعريفات مكررة لـ wxString في الملفات الأخرى
-          find common -name "*.h" -exec sed -i '' '/class wxString;/d' {} +
-
-          # 5. تشغيل البناء
           cd build
-          cmake .. -DCMAKE_CXX_FLAGS="-I${GITHUB_WORKSPACE}/dummy_wx -std=c++17 -w"
+          # 1. إعادة تشغيل CMake مع التأكد من إيقاف SSE تماماً
+          cmake .. -DCMAKE_BUILD_TYPE=Release \
+                   -DCMAKE_OSX_ARCHITECTURES=arm64 \
+                   -DPCSX2_TARGET_ARCH_ARM=1 \
+                   -D__ARM_NEON=1 \
+                   -DCMAKE_CXX_FLAGS="-w -I${GITHUB_WORKSPACE}/dummy_wx" \
+                   -DCMAKE_C_FLAGS="-w -I${GITHUB_WORKSPACE}/dummy_wx"
+
+          # 2. حيلة قوية: البحث في كل ملفات flags.make وحذف تعليمات sse قسرياً
+          # هذه الخطوة تعالج أخطاء المكتبات الخارجية مثل fmt و glslang
+          find . -name "flags.make" -exec sed -i '' 's/-msse[0-9.]*//g' {} +
+          find . -name "flags.make" -exec sed -i '' 's/-mfpmath=sse//g' {} +
+          find . -name "flags.make" -exec sed -i '' 's/-march=native//g' {} +
+
+          # 3. البدء بالبناء
           make -j$(sysctl -n hw.logicalcpu)
