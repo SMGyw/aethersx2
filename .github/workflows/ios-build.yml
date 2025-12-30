@@ -42,7 +42,7 @@ jobs:
             -DPCSX2_CORE=ON \
             -DENABLE_SETCAP=OFF
 
-      - name: Advanced Common Fixes and Build
+      - name: Fix Cubeb Mozilla Headers and Build
         run: |
           export LC_ALL=C
           export LANG=C
@@ -52,7 +52,7 @@ jobs:
           git clean -fd
           rm -rf build && mkdir build
           
-          # 2. PRO Bridge for WxWidgets (Adding missing types)
+          # 2. Bridge for WxWidgets Removal
           mkdir -p dummy_wx/wx
           cat <<EOF > dummy_wx/wx_bridge.h
           #ifndef WX_BRIDGE_H
@@ -62,35 +62,22 @@ jobs:
           #include <vector>
           #include <stdarg.h>
           #include <algorithm>
-          #include <iostream>
-
           typedef char wxChar;
-          typedef std::string wxCharBuffer;
-          typedef std::vector<std::string> wxArrayString;
-          enum wxStringTokenizerMode { wxTOKEN_RET_EMPTY_ALL };
-
           #define _T(x) x
           #define wxT(x) x
           #define _(x) x
           #define WX_STR(x) x
           #define wxEmptyString FakeWxString("")
-
           class FakeWxString : public std::string {
           public:
               using std::string::string;
               FakeWxString(const char* s) : std::string(s ? s : "") {}
-              FakeWxString(const std::string& s) : std::string(s) {}
-              const char* wx_str() const { return c_str(); }
-              const char* c_str() const { return std::string::c_str(); }
-              const char* ToUTF8() const { return c_str(); }
               const char* utf8_str() const { return c_str(); }
-              bool IsEmpty() const { return empty(); }
               static FakeWxString Format(const char* f, ...) {
                   char b[8192]; va_list a; va_start(a, f);
                   vsnprintf(b, sizeof(b), f, a); va_end(a);
                   return FakeWxString(b);
               }
-              operator const char*() const { return c_str(); }
           };
           #define wxString FakeWxString
           #endif
@@ -100,35 +87,38 @@ jobs:
             echo "#include \"../wx_bridge.h\"" > dummy_wx/wx/$h
           done
 
-          # 3. FIX CORE SOURCE CONFLICTS (The specific fixes for your log)
-          # A. Remove conflicting forward declarations
-          find common -name "Pcsx2Types.h" -exec sed -i '' '/class wxString;/d' {} +
-          
-          # B. Fix StringHelpers redeclaration (Remove the wxChar versions to keep char versions)
-          find common -name "StringHelpers.h" -exec sed -i '' '/const wxChar\* psz/d' {} +
-          find common -name "StringHelpers.h" -exec sed -i '' '/const wxChar\* fmt/d' {} +
-
-          # C. Fix TraceLog return issues
-          find common -name "TraceLog.h" -exec sed -i '' 's/return wxEmptyString/return ""/g' {} +
-
-          # 4. Global zlib and cubeb fixes (from previous steps)
+          # 3. GLOBAL FORCE DELETE for fdopen (zlib fix from previous step)
           find . -name "zutil.h" -exec sed -i '' '/define fdopen/d' {} +
-          find 3rdparty/cubeb -name "cubeb_resampler_internal.h" -exec sed -i '' 's/#define unique_ptr UniquePtr/\/\/ disabled/g' {} +
+          find . -name "gzguts.h" -exec sed -i '' '/define fdopen/d' {} +
 
-          # 5. Safe String Surgery
+          # 4. FIX CUBEB MOZILLA ERROR (New Fix)
+          # Replace Mozilla's UniquePtr with standard C++ unique_ptr
+          find 3rdparty/cubeb -name "*.h" -o -name "*.cpp" | xargs sed -i '' 's/#include "mozilla\/UniquePtr.h"/#include <memory>/g'
+          find 3rdparty/cubeb -name "*.h" -o -name "*.cpp" | xargs sed -i '' 's/mozilla::UniquePtr/std::unique_ptr/g'
+          find 3rdparty/cubeb -name "*.h" -o -name "*.cpp" | xargs sed -i '' 's/mozilla::MakeUnique/std::make_unique/g'
+          # Also disable a common macro that conflicts in cubeb_resampler
+          find 3rdparty/cubeb -name "cubeb_resampler_internal.h" -exec sed -i '' 's/#define unique_ptr UniquePtr/\/\/ macro disabled/g' {} +
+
+          # 5. Safe String Surgery (Ignore 3rdparty)
           find . -type d -path "./3rdparty" -prune -o -type f \( -name "*.cpp" -o -name "*.h" -o -name "*.inl" -o -name "*.mm" \) -print0 | xargs -0 sed -i '' 's/L\(\"\)/ \1/g'
 
-          # 6. Configure and Force ARM64
+          # 6. Remove duplicate declarations in common
+          find common -name "TraceLog.h" -exec sed -i '' '/const wxChar\* fmt/d' {} +
+          find common -name "Console.h" -exec sed -i '' '/const wxChar\* fmt/d' {} +
+          find common -name "*.cpp" -exec sed -i '' '/wxChar\* fmt/,/}/d' {} +
+
+          # 7. Configure and Force ARM64
           cd build
           cmake .. -DCMAKE_BUILD_TYPE=Release \
                    -DCMAKE_SYSTEM_NAME=Darwin \
                    -DCMAKE_OSX_ARCHITECTURES=arm64 \
                    -DUSE_WXWIDGETS=OFF \
                    -DPCSX2_USE_PCH=OFF \
-                   -DCMAKE_CXX_FLAGS="-I${GITHUB_WORKSPACE}/dummy_wx -Wno-everything -D__ARM_NEON -std=c++17"
+                   -DCMAKE_CXX_FLAGS="-I${GITHUB_WORKSPACE}/dummy_wx -Wno-everything -D__ARM_NEON"
           
-          # Force remove x86 specific flags
+          # Clean SSE flags
           find . -name "flags.make" -exec sed -i '' 's/-msse[0-9.]*//g' {} +
           find . -name "flags.make" -exec sed -i '' 's/-mfpmath=sse//g' {} +
+          find . -name "flags.make" -exec sed -i '' 's/-march=native//g' {} +
 
           cmake --build . --config Release -- -j $(sysctl -n hw.logicalcpu)
