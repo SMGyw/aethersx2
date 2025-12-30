@@ -42,76 +42,125 @@ jobs:
             -DPCSX2_CORE=ON \
             -DENABLE_SETCAP=OFF
 
-      - name: Hard Fix Cubeb and Build
+      - name: Pro Fix - Common Core & WxBridge
         run: |
           export LC_ALL=C
           export LANG=C
           
-          # 1. Reset and Clean
+          # 1. Clean Slate (Reset everything)
           git checkout .
           git clean -fd
           rm -rf build && mkdir build
           
-          # 2. Bridge for WxWidgets (Keep this, it's working)
+          # 2. Build the "Pro" WxBridge
           mkdir -p dummy_wx/wx
           cat <<EOF > dummy_wx/wx_bridge.h
           #ifndef WX_BRIDGE_H
           #define WX_BRIDGE_H
+          
           #include <stdio.h>
           #include <string>
           #include <vector>
           #include <stdarg.h>
           #include <algorithm>
+          #include <memory>
+          
+          // Define base types
           typedef char wxChar;
+          typedef std::string wxCharBuffer;
+          typedef std::vector<std::string> wxArrayString;
+          
+          // Enum needs to be visible
+          enum wxStringTokenizerMode { wxTOKEN_RET_EMPTY_ALL };
+          
+          // Mock wxStringTokenizer
+          class wxStringTokenizer {
+          public:
+              wxStringTokenizer(const std::string&, const std::string&, wxStringTokenizerMode) {}
+          };
+          
+          // Macros to bypass WxWidgets translation macros
           #define _T(x) x
           #define wxT(x) x
           #define _(x) x
           #define WX_STR(x) x
-          #define wxEmptyString FakeWxString("")
+          
+          // The Real FakeWxString Class (Not just a macro)
           class FakeWxString : public std::string {
           public:
-              using std::string::string;
+              using std::string::string; // Inherit constructors
+              
+              FakeWxString() : std::string("") {}
               FakeWxString(const char* s) : std::string(s ? s : "") {}
+              FakeWxString(const std::string& s) : std::string(s) {}
+              
+              // WxWidgets compatibility methods
+              const char* ToUTF8() const { return c_str(); }
               const char* utf8_str() const { return c_str(); }
+              const char* wx_str() const { return c_str(); }
+              bool IsEmpty() const { return empty(); }
+              
+              // Static formatter
               static FakeWxString Format(const char* f, ...) {
-                  char b[8192]; va_list a; va_start(a, f);
-                  vsnprintf(b, sizeof(b), f, a); va_end(a);
+                  char b[8192]; 
+                  va_list a; 
+                  va_start(a, f);
+                  vsnprintf(b, sizeof(b), f, a); 
+                  va_end(a);
                   return FakeWxString(b);
               }
           };
+          
+          // Map wxString to our class
           #define wxString FakeWxString
+          #define wxEmptyString FakeWxString("")
+          
           #endif
           EOF
 
+          # Populate dummy headers
           for h in string.h log.h setup.h intl.h crt.h filefn.h config.h chartype.h tokenzr.h buffer.h thread.h; do
             echo "#include \"../wx_bridge.h\"" > dummy_wx/wx/$h
           done
 
-          # 3. Solve zlib fdopen conflict
-          find . -name "zutil.h" -exec sed -i '' '/define fdopen/d' {} +
+          # 3. SURGICAL REMOVAL (Deleting conflicts from Source Code)
+          
+          # A. Remove 'class wxString;' forward declarations (Causes conflict with our class)
+          find common -name "*.h" -exec sed -i '' '/class wxString;/d' {} +
+          
+          # B. Remove 'typedef std::string wxString;' (Causes redefinition error)
+          find common -name "Pcsx2Defs.h" -exec sed -i '' '/typedef std::string wxString;/d' {} +
+          
+          # C. Fix "Redeclared" functions in StringHelpers.h (Remove wxChar versions)
+          find common -name "StringHelpers.h" -exec sed -i '' '/const wxChar\* psz/d' {} +
+          find common -name "StringHelpers.h" -exec sed -i '' '/const wxChar\* fmt/d' {} +
+          
+          # D. Fix "Redeclared" functions in Console.h
+          find common -name "Console.h" -exec sed -i '' '/const wxChar\* fmt/d' {} +
+          find common -name "Console.h" -exec sed -i '' '/bool WriteLn(ConsoleColors color, const wxChar\* fmt/d' {} +
+          
+          # E. Fix missing types in StringHelpers.h
+          # (Inject include at the top to ensure types are known)
+          sed -i '' '1i\
+          #include "../../dummy_wx/wx_bridge.h"
+          ' common/StringHelpers.h
 
-          # 4. SURGICAL FIX FOR CUBEB MOZILLA (The New Fix)
-          # First, replace the includes
+          # 4. FIX PREVIOUS ISSUES (Cubeb & Zlib)
+          find . -name "zutil.h" -exec sed -i '' '/define fdopen/d' {} +
+          
           find 3rdparty/cubeb -name "*.h" -o -name "*.cpp" | xargs sed -i '' 's/#include "mozilla\/UniquePtr.h"/#include <memory>/g'
-          find 3rdparty/cubeb -name "*.h" -o -name "*.cpp" | xargs sed -i '' 's/#include "mozilla\/Move.h"//g'
-          
-          # Second, replace 'using mozilla' declarations with 'std'
-          find 3rdparty/cubeb -name "*.h" -o -name "*.cpp" | xargs sed -i '' 's/using mozilla::UniquePtr;/using std::unique_ptr;/g'
-          find 3rdparty/cubeb -name "*.h" -o -name "*.cpp" | xargs sed -i '' 's/using mozilla::DefaultDelete;/using std::default_delete;/g'
-          find 3rdparty/cubeb -name "*.h" -o -name "*.cpp" | xargs sed -i '' 's/using mozilla::Move;/using std::move;/g'
-          
-          # Third, replace remaining direct calls
           find 3rdparty/cubeb -name "*.h" -o -name "*.cpp" | xargs sed -i '' 's/mozilla::UniquePtr/std::unique_ptr/g'
           find 3rdparty/cubeb -name "*.h" -o -name "*.cpp" | xargs sed -i '' 's/mozilla::MakeUnique/std::make_unique/g'
-          find 3rdparty/cubeb -name "*.h" -o -name "*.cpp" | xargs sed -i '' 's/mozilla::DefaultDelete/std::default_delete/g'
+          find 3rdparty/cubeb -name "*.h" -o -name "*.cpp" | xargs sed -i '' 's/using mozilla::DefaultDelete;/using std::default_delete;/g'
+          find 3rdparty/cubeb -name "*.h" -o -name "*.cpp" | xargs sed -i '' 's/using mozilla::UniquePtr;/using std::unique_ptr;/g'
+          find 3rdparty/cubeb -name "*.h" -o -name "*.cpp" | xargs sed -i '' 's/#include "mozilla\/Move.h"//g'
+          find 3rdparty/cubeb -name "*.h" -o -name "*.cpp" | xargs sed -i '' 's/mozilla::Move/std::move/g'
+          find 3rdparty/cubeb -name "cubeb_resampler_internal.h" -exec sed -i '' 's/#define unique_ptr UniquePtr/\/\/ disabled/g' {} +
 
-          # Disable the conflicting macro
-          find 3rdparty/cubeb -name "cubeb_resampler_internal.h" -exec sed -i '' 's/#define unique_ptr UniquePtr/\/\/ macro disabled/g' {} +
-
-          # 5. Safe String Surgery (Ignore 3rdparty)
+          # 5. Global Wide-String Cleanup (L"...")
           find . -type d -path "./3rdparty" -prune -o -type f \( -name "*.cpp" -o -name "*.h" -o -name "*.inl" -o -name "*.mm" \) -print0 | xargs -0 sed -i '' 's/L\(\"\)/ \1/g'
 
-          # 6. Configure and Build for ARM64
+          # 6. Build Configuration
           cd build
           cmake .. -DCMAKE_BUILD_TYPE=Release \
                    -DCMAKE_SYSTEM_NAME=Darwin \
@@ -120,7 +169,7 @@ jobs:
                    -DPCSX2_USE_PCH=OFF \
                    -DCMAKE_CXX_FLAGS="-I${GITHUB_WORKSPACE}/dummy_wx -Wno-everything -D__ARM_NEON -std=c++17"
           
-          # Force remove SSE flags
+          # Clean SSE flags
           find . -name "flags.make" -exec sed -i '' 's/-msse[0-9.]*//g' {} +
           find . -name "flags.make" -exec sed -i '' 's/-mfpmath=sse//g' {} +
 
