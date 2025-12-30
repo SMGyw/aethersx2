@@ -42,7 +42,7 @@ jobs:
             -DPCSX2_CORE=ON \
             -DENABLE_SETCAP=OFF
 
-      - name: Force Fix zlib and Project Strings
+      - name: Hard Fix zlib and Project Strings
         run: |
           export LC_ALL=C
           export LANG=C
@@ -52,7 +52,7 @@ jobs:
           git clean -fd
           rm -rf build && mkdir build
           
-          # 2. Bridge for WxWidgets
+          # 2. Advanced Bridge for WxWidgets
           mkdir -p dummy_wx/wx
           cat <<EOF > dummy_wx/wx_bridge.h
           #ifndef WX_BRIDGE_H
@@ -87,11 +87,14 @@ jobs:
             echo "#include \"../wx_bridge.h\"" > dummy_wx/wx/$h
           done
 
-          # 3. FORCE REMOVE fdopen macro from zlib
-          # We use a very aggressive find-and-delete to ensure zlib doesn't break system headers
-          find 3rdparty/libchdr -name "zutil.h" -exec sed -i '' '/#define fdopen/d' {} +
+          # 3. GLOBAL FORCE DELETE for fdopen macro
+          # This will find ANY zutil.h and delete the problematic line 140
+          find . -name "zutil.h" -exec sed -i '' '/define fdopen/d' {} +
+          
+          # Also disable it in any other potential zlib files
+          find . -name "gzguts.h" -exec sed -i '' '/define fdopen/d' {} +
 
-          # 4. Safe String Surgery (Ignore 3rdparty to prevent fmt/glslang errors)
+          # 4. Safe String Surgery (Exclude 3rdparty to avoid case errors)
           find . -type d -path "./3rdparty" -prune -o -type f \( -name "*.cpp" -o -name "*.h" -o -name "*.inl" -o -name "*.mm" \) -print0 | xargs -0 sed -i '' 's/L\(\"\)/ \1/g'
 
           # 5. Remove duplicate declarations in common
@@ -99,7 +102,7 @@ jobs:
           find common -name "Console.h" -exec sed -i '' '/const wxChar\* fmt/d' {} +
           find common -name "*.cpp" -exec sed -i '' '/wxChar\* fmt/,/}/d' {} +
 
-          # 6. Configure for ARM64
+          # 6. Configure and Force ARM64
           cd build
           cmake .. -DCMAKE_BUILD_TYPE=Release \
                    -DCMAKE_SYSTEM_NAME=Darwin \
@@ -108,7 +111,7 @@ jobs:
                    -DPCSX2_USE_PCH=OFF \
                    -DCMAKE_CXX_FLAGS="-I${GITHUB_WORKSPACE}/dummy_wx -Wno-everything -D__ARM_NEON"
           
-          # Remove SSE flags globally from generated build files
+          # Scrub all SSE/x86 flags from the generated build system
           find . -name "flags.make" -exec sed -i '' 's/-msse[0-9.]*//g' {} +
           find . -name "flags.make" -exec sed -i '' 's/-mfpmath=sse//g' {} +
           find . -name "flags.make" -exec sed -i '' 's/-march=native//g' {} +
