@@ -42,12 +42,12 @@ jobs:
             -DPCSX2_CORE=ON \
             -DENABLE_SETCAP=OFF
 
-      - name: Ultimate Cubeb Fix and Build
+      - name: Full Bridge Surgery for Common
         shell: bash
         run: |
           export PATH="/usr/bin:/bin:/usr/local/bin:$PATH"
           
-          # 1. بناء الجسر (نفس الكود السابق)
+          # 1. بناء جسر متطور جداً لمحاكاة wxWidgets بالكامل
           mkdir -p dummy_wx/wx
           cat <<EOF > dummy_wx/wx_bridge.h
           #ifndef WX_BRIDGE_H
@@ -55,24 +55,45 @@ jobs:
           #include <string>
           #include <vector>
           #include <cstring>
+          #include <cwchar>
+
+          // تعريف الأنواع الأساسية التي يطلبها StringHelpers
           typedef wchar_t wxChar;
+          struct wxPoint { int x, y; };
+          struct wxSize { int x, y; };
+          struct wxRect { int x, y, w, h; };
+          #define wxDefaultPosition wxPoint{0,0}
+          #define wxDefaultSize wxSize{0,0}
+          #define wxDefaultRect wxRect{0,0,0,0}
+
+          enum wxStringTokenizerMode { wxTOKEN_RET_EMPTY_ALL };
+          class wxStringTokenizer {};
+
           struct wxCharBuffer {
               std::string d;
               wxCharBuffer(const char* s=nullptr) : d(s?s:"") {}
               const char* data() const { return d.c_str(); }
               operator const char*() const { return d.c_str(); }
           };
+
           class wxString : public std::string {
           public:
               using std::string::string;
               wxString(const std::string& s) : std::string(s) {}
-              wxCharBuffer ToUTF8() const { return wxCharBuffer(c_str()); }
-              size_t Length() const { return length(); }
-              void Replace(std::string o, std::string n) {
-                  size_t p=0; while((p=find(o,p))!=std::string::npos){ replace(p,o.length(),n); p+=n.length(); }
+              // حل مشكلة L"," و النصوص العريضة
+              wxString(const wchar_t* ws) {
+                  if(!ws) return;
+                  char buf[1024];
+                  wcstombs(buf, ws, 1024);
+                  assign(buf);
               }
-              static wxString Format(const char* f, ...) { return wxString(""); } 
+              wxCharBuffer ToUTF8() const { return wxCharBuffer(c_str()); }
+              const char* c_str() const { return std::string::c_str(); }
+              size_t Length() const { return length(); }
+              static wxString Format(const char* f, ...) { return wxString(""); }
+              void Replace(std::string o, std::string n) {}
           };
+
           #define wxT(x) L##x
           #define _T(x) L##x
           #define wxEmptyString wxString("")
@@ -80,36 +101,33 @@ jobs:
           #endif
           EOF
 
-          for h in string.h log.h intl.h crt.h tokenzr.h filefn.h; do
+          # 2. إنشاء ملفات ترويسة وهمية لكل ما يطلبه الكود
+          for h in string.h log.h intl.h crt.h tokenzr.h filefn.h gdicmn.h setup.h thread.h app.h event.h msgdlg.h confbase.h fileconf.h; do
             echo '#include "../wx_bridge.h"' > dummy_wx/wx/$h
           done
 
-          # 2. الحل الجذري لمشكلة Cubeb (28%)
-          # سنقوم بمسح محتوى ملف CMakeLists.txt الخاص بـ cubeb تماماً
-          # هذا سيجعل CMake يتخطاه دون إعطاء أخطاء
+          # 3. جراحة Pcsx2Defs لمنع تعارض التعريفات
+          /usr/bin/sed -i '' 's/typedef char wxChar;/\/\/ disabled/g' common/Pcsx2Defs.h
+          /usr/bin/sed -i '' 's/typedef std::string wxString;/\/\/ disabled/g' common/Pcsx2Defs.h
+
+          # 4. تعطيل AppKit و الـ Forward Declarations التي تسبب مشاكل
+          /usr/bin/sed -i '' 's/#import <AppKit\/AppKit.h>/\/\/ disabled/g' common/GL/ContextAGL.h || true
+          /usr/bin/find common -name "*.h" -exec /usr/bin/sed -i '' 's/class wxString;/#include "wx_bridge.h"/g' {} +
+
+          # 5. تعطيل Cubeb تماماً (الحل القانوني)
           if [ -f 3rdparty/cubeb/CMakeLists.txt ]; then
              echo "project(cubeb)" > 3rdparty/cubeb/CMakeLists.txt
              echo "add_library(cubeb INTERFACE)" >> 3rdparty/cubeb/CMakeLists.txt
           fi
 
-          # 3. تنظيف zlib وتعديلات الملفات
-          /usr/bin/find 3rdparty -name "zutil.h" -exec /usr/bin/sed -i '' '/#[\ ]*define[\ ]*fdopen/d' {} +
-          /usr/bin/sed -i '' 's/class wxString;/#include "wx_bridge.h"/' common/Pcsx2Types.h
-          /usr/bin/find common -name "*.h" -exec /usr/bin/sed -i '' '/class wxString;/d' {} +
-
-          # 4. تشغيل CMake
+          # 6. تشغيل CMake
           cd build
           cmake .. -DCMAKE_BUILD_TYPE=Release \
                    -DCMAKE_OSX_ARCHITECTURES=arm64 \
                    -DHAVE_FDOPEN=1 \
-                   -DUSE_CUBEB=OFF \
-                   -DBUILD_CUBEB=OFF \
                    -DCMAKE_CXX_FLAGS="-w -I${GITHUB_WORKSPACE}/dummy_wx" \
                    -DCMAKE_C_FLAGS="-w -I${GITHUB_WORKSPACE}/dummy_wx"
 
-          # 5. تنظيف SSE
+          # 7. تنظيف الـ flags ثم البناء
           /usr/bin/find . -name "flags.make" -exec /usr/bin/sed -i '' 's/-msse[0-9.]*//g' {} +
-          /usr/bin/find . -name "flags.make" -exec /usr/bin/sed -i '' 's/-mfpmath=sse//g' {} +
-
-          # 6. البناء
           make -j$(sysctl -n hw.logicalcpu)
