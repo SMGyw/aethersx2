@@ -43,8 +43,12 @@ jobs:
             -DENABLE_SETCAP=OFF
 
       - name: Unified Pro Fix and Build
+        shell: bash
         run: |
-          # 1. (نفس كود إنشاء wx_bridge.h السابق)
+          # التأكد من وجود المسارات الأساسية للأوامر
+          export PATH="/usr/bin:/bin:/usr/local/bin:$PATH"
+          
+          # 1. إنشاء الجسر (نفس الكود السابق)
           mkdir -p dummy_wx/wx
           cat <<EOF > dummy_wx/wx_bridge.h
           #ifndef WX_BRIDGE_H
@@ -77,21 +81,19 @@ jobs:
           #endif
           EOF
 
-          # 2. إنشاء ملفات الترويسة الوهمية
+          # 2. إنشاء ملفات الترويسة الوهمية [cite: 4]
           for h in string.h log.h intl.h crt.h tokenzr.h filefn.h; do
             echo '#include "../wx_bridge.h"' > dummy_wx/wx/$h
           done
 
-          # 3. جراحة لتعطيل Cubeb تماماً من نظام البناء (حل مشكلة 21%)
-          # سنقوم بحذف أي سطر يحاول تجميع مكتبة cubeb
-          find . -name "CMakeLists.txt" -exec sed -i '' '/cubeb/d' {} +
-          
-          # 4. جراحة ملف zlib وتعديلات Pcsx2Types (نفس الخطوات السابقة) [cite: 3]
-          find 3rdparty -name "zutil.h" -exec sed -i '' '/#[\ ]*define[\ ]*fdopen/d' {} +
-          [cite_start]sed -i '' 's/class wxString;/#include "wx_bridge.h"/' common/Pcsx2Types.h [cite: 3]
-          find common -name "*.h" -exec sed -i '' '/class wxString;/d' {} +
+          # 3. استخدام المسار المطلق لـ sed لضمان عمله (/usr/bin/sed)
+          # تعطيل Cubeb وتعديل ملفات common [cite: 3, 6]
+          /usr/bin/find . -name "CMakeLists.txt" -exec /usr/bin/sed -i '' '/cubeb/d' {} +
+          /usr/bin/find 3rdparty -name "zutil.h" -exec /usr/bin/sed -i '' '/#[\ ]*define[\ ]*fdopen/d' {} +
+          /usr/bin/sed -i '' 's/class wxString;/#include "wx_bridge.h"/' common/Pcsx2Types.h
+          /usr/bin/find common -name "*.h" -exec /usr/bin/sed -i '' '/class wxString;/d' {} +
 
-          # 5. تشغيل CMake مع تفعيل خيارات الإيقاف القسري 
+          # 4. تشغيل CMake مع تفعيل HAVE_FDOPEN [cite: 1]
           cd build
           cmake .. -DCMAKE_BUILD_TYPE=Release \
                    -DCMAKE_OSX_ARCHITECTURES=arm64 \
@@ -101,9 +103,9 @@ jobs:
                    -DCMAKE_CXX_FLAGS="-w -I${GITHUB_WORKSPACE}/dummy_wx" \
                    -DCMAKE_C_FLAGS="-w -I${GITHUB_WORKSPACE}/dummy_wx"
 
-          # 6. تنظيف SSE
-          find . -name "flags.make" -exec sed -i '' 's/-msse[0-9.]*//g' {} +
-          find . -name "flags.make" -exec sed -i '' 's/-mfpmath=sse//g' {} +
+          # 5. تنظيف SSE باستخدام المسار المطلق [cite: 1]
+          /usr/bin/find . -name "flags.make" -exec /usr/bin/sed -i '' 's/-msse[0-9.]*//g' {} +
+          /usr/bin/find . -name "flags.make" -exec /usr/bin/sed -i '' 's/-mfpmath=sse//g' {} +
 
-          # 7. البناء
+          # 6. البناء النهائي
           make -j$(sysctl -n hw.logicalcpu)
