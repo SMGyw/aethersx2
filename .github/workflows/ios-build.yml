@@ -12,18 +12,39 @@ jobs:
         run: |
           brew install cmake ninja
 
-      - name: Create Dummy wxWidgets Headers
+      - name: Create Comprehensive Bridge Headers
         run: |
           mkdir -p dummy_wx/wx
-          touch dummy_wx/wx/string.h
-          touch dummy_wx/wx/log.h
-          touch dummy_wx/wx/thread.h
-          touch dummy_wx/wx/gdicmn.h
-          touch dummy_wx/wx/msgdlg.h
-          touch dummy_wx/wx/app.h
-          touch dummy_wx/wx/confbase.h
-          touch dummy_wx/wx/fileconf.h
-          touch dummy_wx/wx/event.h
+          
+          # إنشاء ملف الجسر الرئيسي
+          cat <<EOF > dummy_wx/wx_bridge.h
+          #ifndef WX_BRIDGE_H
+          #define WX_BRIDGE_H
+          #include <string>
+          #include <vector>
+          
+          // تعريف الأنواع الأساسية التي يطلبها المحاكي
+          typedef char wxChar;
+          class wxString : public std::string {
+          public:
+              using std::string::string;
+              wxString(const std::string& s) : std::string(s) {}
+              const char* c_str() const { return std::string::c_str(); }
+              bool IsEmpty() const { return empty(); }
+              static wxString Format(const char* f, ...) { return wxString(""); }
+          };
+          
+          #define wxT(x) x
+          #define _T(x) x
+          #define wxEmptyString wxString("")
+          typedef std::vector<wxString> wxArrayString;
+          #endif
+          EOF
+
+          # ربط الملفات المطلوبة بالجسر الرئيسي
+          for h in string.h log.h intl.h crt.h tokenzr.h filefn.h gdicmn.h setup.h thread.h app.h event.h msgdlg.h confbase.h fileconf.h; do
+            echo '#include "../wx_bridge.h"' > dummy_wx/wx/$h
+          done
 
       - name: Configure CMake
         run: |
@@ -42,38 +63,20 @@ jobs:
             -DPCSX2_CORE=ON \
             -DENABLE_SETCAP=OFF
 
-      - name: Unified Pro Fix and Build
-        shell: bash
+      - name: Build with Surgical Fixes
         run: |
-          export PATH="/usr/bin:/bin:/usr/local/bin:$PATH"
-          
-          # --- خطوة 1: الجراحة البرمجية لفك التعارضات ---
-          
-          # حذف ماكرو fdopen من zlib لأنه يفسد ملفات stdio.h الخاصة بـ iOS
-          /usr/bin/find 3rdparty -name "zutil.h" -exec /usr/bin/sed -i '' '/#[\ ]*define[\ ]*fdopen/d' {} +
-          
-          # تعطيل Cubeb (INTERFCE trick) لتجنب أخطاء mozilla
-          if [ -f 3rdparty/cubeb/CMakeLists.txt ]; then
-             echo "project(cubeb)" > 3rdparty/cubeb/CMakeLists.txt
-             echo "add_library(cubeb INTERFACE)" >> 3rdparty/cubeb/CMakeLists.txt
-          fi
-          
-          # تعطيل redefinition في Pcsx2Defs.h
-          /usr/bin/sed -i '' 's/typedef char wxChar;/\/\/ disabled/g' common/Pcsx2Defs.h
-          /usr/bin/sed -i '' 's/typedef std::string wxString;/\/\/ disabled/g' common/Pcsx2Defs.h
-
-          # --- خطوة 2: بناء الجسر (Bridge) كما فعلنا سابقاً ---
-          # (ضع هنا كود إنشاء dummy_wx/wx_bridge.h الذي استخدمناه في المرة السابقة)
-
-          # --- خطوة 3: تشغيل CMake والبناء ---
           cd build
+          
+          # 1. تعطيل استدعاء AppKit في ملفات OpenGL يدويًا قبل البناء
+          sed -i '' 's/#import <AppKit\/AppKit.h>/\/\/ disabled AppKit/g' ../common/GL/ContextAGL.h || true
+          
+          # 2. تشغيل CMake مع إضافة مسار الترويسات الوهمية
           cmake .. -DCMAKE_BUILD_TYPE=Release \
                    -DCMAKE_OSX_ARCHITECTURES=arm64 \
-                   -DHAVE_FDOPEN=1 \
                    -DCMAKE_CXX_FLAGS="-w -I${GITHUB_WORKSPACE}/dummy_wx" \
                    -DCMAKE_C_FLAGS="-w -I${GITHUB_WORKSPACE}/dummy_wx"
 
-          # تنظيف الـ SSE قبل الـ Make
+          # 3. تنظيف SSE لمنع التعارض مع معمارية ARM
           /usr/bin/find . -name "flags.make" -exec /usr/bin/sed -i '' 's/-msse[0-9.]*//g' {} +
           /usr/bin/find . -name "flags.make" -exec /usr/bin/sed -i '' 's/-mfpmath=sse//g' {} +
 
