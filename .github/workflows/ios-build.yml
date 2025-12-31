@@ -42,89 +42,39 @@ jobs:
             -DPCSX2_CORE=ON \
             -DENABLE_SETCAP=OFF
 
-      - name: Surgical Fix for SSE and Core Types
+      - name: Unified Pro Fix and Build
         shell: bash
         run: |
           export PATH="/usr/bin:/bin:/usr/local/bin:$PATH"
           
-          # 1. إنشاء الجسر الشامل (محاكاة wxWidgets وحل تعارض النصوص العريضة)
-          mkdir -p dummy_wx/wx
-          cat <<EOF > dummy_wx/wx_bridge.h
-          #ifndef WX_BRIDGE_H
-          #define WX_BRIDGE_H
-          #include <string>
-          #include <vector>
-          #include <cstring>
-          #include <cwchar>
-          typedef wchar_t wxChar;
-          struct wxPoint { int x, y; };
-          struct wxSize { int x, y; };
-          struct wxRect { int x, y, w, h; };
-          #define wxDefaultPosition wxPoint{0,0}
-          #define wxDefaultSize wxSize{0,0}
-          #define wxDefaultRect wxRect{0,0,0,0}
-          enum wxStringTokenizerMode { wxTOKEN_RET_EMPTY_ALL };
-          class wxStringTokenizer {};
-          struct wxCharBuffer {
-              std::string d;
-              wxCharBuffer(const char* s=nullptr) : d(s?s:"") {}
-              const char* data() const { return d.c_str(); }
-              operator const char*() const { return d.c_str(); }
-          };
-          class wxString : public std::string {
-          public:
-              using std::string::string;
-              wxString(const std::string& s) : std::string(s) {}
-              wxString(const wchar_t* ws) {
-                  if(!ws) return;
-                  char buf[1024];
-                  size_t res = wcstombs(buf, ws, 1024);
-                  if(res != (size_t)-1) assign(buf);
-              }
-              wxCharBuffer ToUTF8() const { return wxCharBuffer(c_str()); }
-              const char* c_str() const { return std::string::c_str(); }
-              size_t Length() const { return length(); }
-              static wxString Format(const char* f, ...) { return wxString(""); }
-              void Replace(std::string o, std::string n) {}
-          };
-          #define wxT(x) L##x
-          #define _T(x) L##x
-          #define wxEmptyString wxString("")
-          typedef std::vector<wxString> wxArrayString;
-          #endif
-          EOF
-
-          # 2. توليد الترويسات الناقصة
-          for h in string.h log.h intl.h crt.h tokenzr.h filefn.h gdicmn.h setup.h thread.h app.h event.h msgdlg.h confbase.h fileconf.h; do
-            echo '#include "../wx_bridge.h"' > dummy_wx/wx/$h
-          done
-
-          # 3. تعطيل Cubeb تماماً لمنع أخطاء 'mozilla/UniquePtr.h'
+          # --- خطوة 1: الجراحة البرمجية لفك التعارضات ---
+          
+          # حذف ماكرو fdopen من zlib لأنه يفسد ملفات stdio.h الخاصة بـ iOS
+          /usr/bin/find 3rdparty -name "zutil.h" -exec /usr/bin/sed -i '' '/#[\ ]*define[\ ]*fdopen/d' {} +
+          
+          # تعطيل Cubeb (INTERFCE trick) لتجنب أخطاء mozilla
           if [ -f 3rdparty/cubeb/CMakeLists.txt ]; then
              echo "project(cubeb)" > 3rdparty/cubeb/CMakeLists.txt
              echo "add_library(cubeb INTERFACE)" >> 3rdparty/cubeb/CMakeLists.txt
           fi
-
-          # 4. جراحة لملفات النواة (منع redefinition وتعطيل AppKit)
+          
+          # تعطيل redefinition في Pcsx2Defs.h
           /usr/bin/sed -i '' 's/typedef char wxChar;/\/\/ disabled/g' common/Pcsx2Defs.h
           /usr/bin/sed -i '' 's/typedef std::string wxString;/\/\/ disabled/g' common/Pcsx2Defs.h
-          /usr/bin/sed -i '' 's/#import <AppKit\/AppKit.h>/\/\/ disabled/g' common/GL/ContextAGL.h || true
 
-          # 5. تشغيل CMake مع إعدادات iOS الصارمة
+          # --- خطوة 2: بناء الجسر (Bridge) كما فعلنا سابقاً ---
+          # (ضع هنا كود إنشاء dummy_wx/wx_bridge.h الذي استخدمناه في المرة السابقة)
+
+          # --- خطوة 3: تشغيل CMake والبناء ---
           cd build
           cmake .. -DCMAKE_BUILD_TYPE=Release \
                    -DCMAKE_OSX_ARCHITECTURES=arm64 \
                    -DHAVE_FDOPEN=1 \
-                   -DUSE_SSE=OFF -DENABLE_SSE=OFF -D__SSE__=0 \
                    -DCMAKE_CXX_FLAGS="-w -I${GITHUB_WORKSPACE}/dummy_wx" \
                    -DCMAKE_C_FLAGS="-w -I${GITHUB_WORKSPACE}/dummy_wx"
 
-          # 6. الخطوة الحاسمة: تطهير ملفات البناء من SSE (حل مشكلة unknown FP unit)
-          # سنقوم بمسح أي إشارة لـ sse أو avx في ملفات الإعدادات المتولدة
+          # تنظيف الـ SSE قبل الـ Make
           /usr/bin/find . -name "flags.make" -exec /usr/bin/sed -i '' 's/-msse[0-9.]*//g' {} +
-          /usr/bin/find . -name "flags.make" -exec /usr/bin/sed -i '' 's/-mavx[0-9]*//g' {} +
           /usr/bin/find . -name "flags.make" -exec /usr/bin/sed -i '' 's/-mfpmath=sse//g' {} +
-          /usr/bin/find . -name "flags.make" -exec /usr/bin/sed -i '' 's/-m32//g' {} +
 
-          # 7. بدء البناء النهائي
           make -j$(sysctl -n hw.logicalcpu)
