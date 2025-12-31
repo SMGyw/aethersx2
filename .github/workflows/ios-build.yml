@@ -42,12 +42,12 @@ jobs:
             -DPCSX2_CORE=ON \
             -DENABLE_SETCAP=OFF
 
-      - name: Full Bridge Surgery for Common
+      - name: Advanced Core Surgery and Bridge
         shell: bash
         run: |
           export PATH="/usr/bin:/bin:/usr/local/bin:$PATH"
           
-          # 1. بناء جسر متطور جداً لمحاكاة wxWidgets بالكامل
+          # 1. بناء الجسر الشامل (يحل أخطاء Point, Size, Tokenizer, و wchar_t)
           mkdir -p dummy_wx/wx
           cat <<EOF > dummy_wx/wx_bridge.h
           #ifndef WX_BRIDGE_H
@@ -57,7 +57,6 @@ jobs:
           #include <cstring>
           #include <cwchar>
 
-          // تعريف الأنواع الأساسية التي يطلبها StringHelpers
           typedef wchar_t wxChar;
           struct wxPoint { int x, y; };
           struct wxSize { int x, y; };
@@ -80,12 +79,11 @@ jobs:
           public:
               using std::string::string;
               wxString(const std::string& s) : std::string(s) {}
-              // حل مشكلة L"," و النصوص العريضة
               wxString(const wchar_t* ws) {
                   if(!ws) return;
                   char buf[1024];
-                  wcstombs(buf, ws, 1024);
-                  assign(buf);
+                  size_t res = wcstombs(buf, ws, 1024);
+                  if(res != (size_t)-1) assign(buf);
               }
               wxCharBuffer ToUTF8() const { return wxCharBuffer(c_str()); }
               const char* c_str() const { return std::string::c_str(); }
@@ -101,26 +99,23 @@ jobs:
           #endif
           EOF
 
-          # 2. إنشاء ملفات ترويسة وهمية لكل ما يطلبه الكود
+          # 2. إنشاء كافة الترويسات الوهمية المطلوبة
           for h in string.h log.h intl.h crt.h tokenzr.h filefn.h gdicmn.h setup.h thread.h app.h event.h msgdlg.h confbase.h fileconf.h; do
             echo '#include "../wx_bridge.h"' > dummy_wx/wx/$h
           done
 
-          # 3. جراحة Pcsx2Defs لمنع تعارض التعريفات
+          # 3. تعطيل التعارض في Pcsx2Defs.h (حل مشكلة redefinition)
           /usr/bin/sed -i '' 's/typedef char wxChar;/\/\/ disabled/g' common/Pcsx2Defs.h
           /usr/bin/sed -i '' 's/typedef std::string wxString;/\/\/ disabled/g' common/Pcsx2Defs.h
 
-          # 4. تعطيل AppKit و الـ Forward Declarations التي تسبب مشاكل
-          /usr/bin/sed -i '' 's/#import <AppKit\/AppKit.h>/\/\/ disabled/g' common/GL/ContextAGL.h || true
-          /usr/bin/find common -name "*.h" -exec /usr/bin/sed -i '' 's/class wxString;/#include "wx_bridge.h"/g' {} +
-
-          # 5. تعطيل Cubeb تماماً (الحل القانوني)
+          # 4. تعطيل Cubeb و AppKit
           if [ -f 3rdparty/cubeb/CMakeLists.txt ]; then
              echo "project(cubeb)" > 3rdparty/cubeb/CMakeLists.txt
              echo "add_library(cubeb INTERFACE)" >> 3rdparty/cubeb/CMakeLists.txt
           fi
+          /usr/bin/sed -i '' 's/#import <AppKit\/AppKit.h>/\/\/ disabled/g' common/GL/ContextAGL.h || true
 
-          # 6. تشغيل CMake
+          # 5. تشغيل CMake والبناء
           cd build
           cmake .. -DCMAKE_BUILD_TYPE=Release \
                    -DCMAKE_OSX_ARCHITECTURES=arm64 \
@@ -128,6 +123,5 @@ jobs:
                    -DCMAKE_CXX_FLAGS="-w -I${GITHUB_WORKSPACE}/dummy_wx" \
                    -DCMAKE_C_FLAGS="-w -I${GITHUB_WORKSPACE}/dummy_wx"
 
-          # 7. تنظيف الـ flags ثم البناء
           /usr/bin/find . -name "flags.make" -exec /usr/bin/sed -i '' 's/-msse[0-9.]*//g' {} +
           make -j$(sysctl -n hw.logicalcpu)
