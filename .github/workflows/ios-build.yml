@@ -17,17 +17,16 @@ jobs:
         run: |
           export PATH="/usr/bin:/bin:/usr/local/bin:$PATH"
           
-          # 1. تعطيل مكتبة cubeb تماماً (حل خطأ UniquePtr.h ووصول الـ 28%)
-          # نقوم بإنشاء ملف إعدادات فارغ لإقناع النظام بأن المكتبة موجودة ولكنها فارغة
+          # 1. تعطيل cubeb
           if [ -d "3rdparty/cubeb" ]; then
             echo "project(cubeb)" > 3rdparty/cubeb/CMakeLists.txt
             echo "add_library(cubeb INTERFACE)" >> 3rdparty/cubeb/CMakeLists.txt
           fi
           
-          # 2. حل مشكلة zlib و fdopen (حذف الماكرو المسبب للخطأ في iOS)
+          # 2. حل مشكلة zlib
           /usr/bin/find . -name "zutil.h" -exec /usr/bin/sed -i '' '/#[\ ]*define[\ ]*fdopen/d' {} +
           
-          # 3. بناء الجسر المتطور لمحاكاة wxWidgets بالكامل
+          # 3. تحديث الجسر (Bridge) لحل أخطاء wxPoint و wxSize (تحويلهم لـ class)
           mkdir -p dummy_wx/wx
           cat <<EOF > dummy_wx/wx_bridge.h
           #ifndef WX_BRIDGE_H
@@ -37,21 +36,21 @@ jobs:
           #include <cstring>
           #include <cwchar>
 
-          typedef wchar_t wxChar;
-          struct wxPoint { int x, y; };
-          struct wxSize { int x, y; };
-          struct wxRect { int x, y, w, h; };
-          #define wxDefaultPosition wxPoint{0,0}
-          #define wxDefaultSize wxSize{0,0}
-          #define wxDefaultRect wxRect{0,0,0,0}
+          // تعريف الأنواع كـ classes لتطابق توقعات المحاكي
+          class wxPoint { public: int x, y; wxPoint(int _x=0, int _y=0):x(_x),y(_y){} };
+          class wxSize { public: int x, y; wxSize(int _x=0, int _y=0):x(_x),y(_y){} };
+          class wxRect { public: int x, y, w, h; wxRect(int _x=0,int _y=0,int _w=0,int _h=0):x(_x),y(_y),w(_w),h(_h){} };
 
+          #define wxDefaultPosition wxPoint(-1,-1)
+          #define wxDefaultSize wxSize(-1,-1)
+          #define wxDefaultRect wxRect(-1,-1,-1,-1)
+
+          class wxStringTokenizer { public: wxStringTokenizer(const std::string&, const std::string&){} };
           enum wxStringTokenizerMode { wxTOKEN_RET_EMPTY_ALL };
-          class wxStringTokenizer {};
 
           struct wxCharBuffer {
               std::string d;
               wxCharBuffer(const char* s=nullptr) : d(s?s:"") {}
-              const char* data() const { return d.c_str(); }
               operator const char*() const { return d.c_str(); }
           };
 
@@ -66,12 +65,12 @@ jobs:
                   if(res != (size_t)-1) assign(buf);
               }
               wxCharBuffer ToUTF8() const { return wxCharBuffer(c_str()); }
-              const char* c_str() const { return std::string::c_str(); }
-              size_t Length() const { return length(); }
+              bool IsEmpty() const { return empty(); }
               static wxString Format(const char* f, ...) { return wxString(""); }
               void Replace(std::string o, std::string n) {}
           };
 
+          typedef wchar_t wxChar;
           #define wxT(x) L##x
           #define _T(x) L##x
           #define wxEmptyString wxString("")
@@ -79,15 +78,19 @@ jobs:
           #endif
           EOF
 
-          # 4. إنشاء كافة ملفات الترويسة الوهمية
+          # 4. توليد ملفات dummy
           for h in string.h log.h intl.h crt.h tokenzr.h filefn.h gdicmn.h setup.h thread.h app.h event.h msgdlg.h confbase.h fileconf.h; do
             echo '#include "../wx_bridge.h"' > dummy_wx/wx/$h
           done
 
-          # 5. جراحة لملفات النواة لفك التعارضات وتعطيل AppKit الخاص بالماك
+          # 5. جراحة لتعطيل ملفات الماك (AppKit/NS) وحل تعارضات التعريفات
           /usr/bin/sed -i '' 's/typedef char wxChar;/\/\/ disabled/g' common/Pcsx2Defs.h || true
           /usr/bin/sed -i '' 's/typedef std::string wxString;/\/\/ disabled/g' common/Pcsx2Defs.h || true
-          /usr/bin/sed -i '' 's/#import <AppKit\/AppKit.h>/\/\/ disabled/g' common/GL/ContextAGL.h || true
+          
+          # إفراغ محتوى ملف ContextAGL لأنه خاص بالماك فقط ويسبب أخطاء NSOpenGL
+          echo "// Disabled for iOS" > common/GL/ContextAGL.mm
+          echo "// Disabled for iOS" > common/GL/ContextAGL.h
+          
           /usr/bin/find common -name "*.h" -exec /usr/bin/sed -i '' 's/class wxString;/#include "wx_bridge.h"/g' {} +
 
       - name: Configure and Build
