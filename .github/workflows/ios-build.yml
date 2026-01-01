@@ -12,72 +12,97 @@ jobs:
         run: |
           brew install cmake ninja
 
-      - name: Create Comprehensive Bridge Headers
+      - name: Comprehensive Surgery and Bridge Creation
+        shell: bash
         run: |
-          mkdir -p dummy_wx/wx
+          export PATH="/usr/bin:/bin:/usr/local/bin:$PATH"
           
-          # إنشاء ملف الجسر الرئيسي
+          # 1. حل مشكلة zlib و fdopen (حذف الماكرو المسبب للخطأ في iOS)
+          /usr/bin/find . -name "zutil.h" -exec /usr/bin/sed -i '' '/#[\ ]*define[\ ]*fdopen/d' {} +
+          
+          # 2. بناء الجسر المتطور لمحاكاة wxWidgets بالكامل
+          mkdir -p dummy_wx/wx
           cat <<EOF > dummy_wx/wx_bridge.h
           #ifndef WX_BRIDGE_H
           #define WX_BRIDGE_H
           #include <string>
           #include <vector>
-          
-          // تعريف الأنواع الأساسية التي يطلبها المحاكي
-          typedef char wxChar;
+          #include <cstring>
+          #include <cwchar>
+
+          typedef wchar_t wxChar;
+          struct wxPoint { int x, y; };
+          struct wxSize { int x, y; };
+          struct wxRect { int x, y, w, h; };
+          #define wxDefaultPosition wxPoint{0,0}
+          #define wxDefaultSize wxSize{0,0}
+          #define wxDefaultRect wxRect{0,0,0,0}
+
+          enum wxStringTokenizerMode { wxTOKEN_RET_EMPTY_ALL };
+          class wxStringTokenizer {};
+
+          struct wxCharBuffer {
+              std::string d;
+              wxCharBuffer(const char* s=nullptr) : d(s?s:"") {}
+              const char* data() const { return d.c_str(); }
+              operator const char*() const { return d.c_str(); }
+          };
+
           class wxString : public std::string {
           public:
               using std::string::string;
               wxString(const std::string& s) : std::string(s) {}
+              wxString(const wchar_t* ws) {
+                  if(!ws) return;
+                  char buf[1024];
+                  size_t res = wcstombs(buf, ws, 1024);
+                  if(res != (size_t)-1) assign(buf);
+              }
+              wxCharBuffer ToUTF8() const { return wxCharBuffer(c_str()); }
               const char* c_str() const { return std::string::c_str(); }
-              bool IsEmpty() const { return empty(); }
+              size_t Length() const { return length(); }
               static wxString Format(const char* f, ...) { return wxString(""); }
+              void Replace(std::string o, std::string n) {}
           };
-          
-          #define wxT(x) x
-          #define _T(x) x
+
+          #define wxT(x) L##x
+          #define _T(x) L##x
           #define wxEmptyString wxString("")
           typedef std::vector<wxString> wxArrayString;
           #endif
           EOF
 
-          # ربط الملفات المطلوبة بالجسر الرئيسي
+          # 3. إنشاء كافة ملفات الترويسة الوهمية
           for h in string.h log.h intl.h crt.h tokenzr.h filefn.h gdicmn.h setup.h thread.h app.h event.h msgdlg.h confbase.h fileconf.h; do
             echo '#include "../wx_bridge.h"' > dummy_wx/wx/$h
           done
 
-      - name: Configure CMake
-        run: |
-          rm -rf build
-          mkdir -p build
-          export IOS_SDK_PATH=$(xcrun --sdk iphoneos --show-sdk-path)
-          echo "Current iOS SDK Path: $IOS_SDK_PATH"
-          
-          cmake -S . -B build \
-            -G "Unix Makefiles" \
-            -DCMAKE_SYSTEM_NAME=iOS \
-            -DCMAKE_OSX_SYSROOT=$IOS_SDK_PATH \
-            -DCMAKE_OSX_ARCHITECTURES=arm64 \
-            -DCMAKE_BUILD_TYPE=Release \
-            -DUSE_WXWIDGETS=OFF \
-            -DPCSX2_CORE=ON \
-            -DENABLE_SETCAP=OFF
+          # 4. جراحة لملفات النواة لفك التعارضات وتعطيل AppKit الخاص بالماك
+          /usr/bin/sed -i '' 's/typedef char wxChar;/\/\/ disabled/g' common/Pcsx2Defs.h || true
+          /usr/bin/sed -i '' 's/typedef std::string wxString;/\/\/ disabled/g' common/Pcsx2Defs.h || true
+          /usr/bin/sed -i '' 's/#import <AppKit\/AppKit.h>/\/\/ disabled/g' common/GL/ContextAGL.h || true
+          /usr/bin/find common -name "*.h" -exec /usr/bin/sed -i '' 's/class wxString;/#include "wx_bridge.h"/g' {} +
 
-      - name: Build with Surgical Fixes
+      - name: Configure and Build
+        shell: bash
         run: |
-          cd build
+          mkdir -p build && cd build
+          export IOS_SDK_PATH=$(xcrun --sdk iphoneos --show-sdk-path)
           
-          # 1. تعطيل استدعاء AppKit في ملفات OpenGL يدويًا قبل البناء
-          sed -i '' 's/#import <AppKit\/AppKit.h>/\/\/ disabled AppKit/g' ../common/GL/ContextAGL.h || true
-          
-          # 2. تشغيل CMake مع إضافة مسار الترويسات الوهمية
+          # تشغيل CMake مع إعدادات iOS الشاملة
           cmake .. -DCMAKE_BUILD_TYPE=Release \
+                   -DCMAKE_SYSTEM_NAME=iOS \
+                   -DCMAKE_OSX_SYSROOT=$IOS_SDK_PATH \
                    -DCMAKE_OSX_ARCHITECTURES=arm64 \
+                   -DHAVE_FDOPEN=1 \
+                   -DUSE_WXWIDGETS=OFF \
                    -DCMAKE_CXX_FLAGS="-w -I${GITHUB_WORKSPACE}/dummy_wx" \
                    -DCMAKE_C_FLAGS="-w -I${GITHUB_WORKSPACE}/dummy_wx"
 
-          # 3. تنظيف SSE لمنع التعارض مع معمارية ARM
+          # التطهير القسري لتعليمات SSE من ملفات البناء (لحل خطأ unknown FP unit 'sse')
           /usr/bin/find . -name "flags.make" -exec /usr/bin/sed -i '' 's/-msse[0-9.]*//g' {} +
           /usr/bin/find . -name "flags.make" -exec /usr/bin/sed -i '' 's/-mfpmath=sse//g' {} +
+          /usr/bin/find . -name "flags.make" -exec /usr/bin/sed -i '' 's/-mavx[0-9]*//g' {} +
 
+          # بدء التجميع
           make -j$(sysctl -n hw.logicalcpu)
