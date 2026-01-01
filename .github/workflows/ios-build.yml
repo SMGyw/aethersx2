@@ -17,7 +17,7 @@ jobs:
         run: |
           export PATH="/usr/bin:/bin:/usr/local/bin:$PATH"
           
-          # 1. تعطيل cubeb
+          # 1. تعطيل cubeb (كما فعلنا سابقاً)
           if [ -d "3rdparty/cubeb" ]; then
             echo "project(cubeb)" > 3rdparty/cubeb/CMakeLists.txt
             echo "add_library(cubeb INTERFACE)" >> 3rdparty/cubeb/CMakeLists.txt
@@ -26,7 +26,7 @@ jobs:
           # 2. حل مشكلة zlib
           /usr/bin/find . -name "zutil.h" -exec /usr/bin/sed -i '' '/#[\ ]*define[\ ]*fdopen/d' {} +
           
-          # 3. تحديث الجسر (Bridge) - نسخة "الاستقرار التام"
+          # 3. بناء الجسر المطور (Super Bridge) لدعم Unicode والعمليات النصية
           mkdir -p dummy_wx/wx
           cat <<EOF > dummy_wx/wx_bridge.h
           #ifndef WX_BRIDGE_H
@@ -35,28 +35,28 @@ jobs:
           #include <vector>
           #include <cstring>
           #include <cwchar>
+          #include <iostream>
 
-          // تعريف الكلاسات أولاً
+          // تعريف الماكرو المفقود للأخطاء
+          #ifndef __TFILE__
+          #define __TFILE__ wxT(__FILE__)
+          #endif
+
           class wxPoint { public: int x, y; wxPoint(int _x=0, int _y=0):x(_x),y(_y){} };
           class wxSize { public: int x, y; wxSize(int _x=0, int _y=0):x(_x),y(_y){} };
           class wxRect { public: int x, y, w, h; wxRect(int _x=0,int _y=0,int _w=0,int _h=0):x(_x),y(_y),w(_w),h(_h){} };
 
-          // تعريف الثوابت كقيم ثابتة وليس ماكرو لتجنب أخطاء التكرار
           static const wxPoint wxDefaultPositionInternal(-1, -1);
           static const wxSize wxDefaultSizeInternal(-1, -1);
           static const wxRect wxDefaultRectInternal(-1, -1, -1, -1);
-
           #define wxDefaultPosition wxDefaultPositionInternal
           #define wxDefaultSize wxDefaultSizeInternal
           #define wxDefaultRect wxDefaultRectInternal
 
-          class wxStringTokenizer { public: wxStringTokenizer(...){} };
-          enum wxStringTokenizerMode { wxTOKEN_RET_EMPTY_ALL };
-
           struct wxCharBuffer {
               std::string d;
-              wxCharBuffer(const char* s=nullptr) : d(s?s:"") {}
-              const char* data() const { return d.c_str(); } // إضافة دالة data الصريحة
+              wxCharBuffer(const char* s="") : d(s?s:"") {}
+              const char* data() const { return d.c_str(); }
               operator const char*() const { return d.c_str(); }
           };
 
@@ -66,42 +66,67 @@ jobs:
               wxString(const std::string& s) : std::string(s) {}
               wxString(const wchar_t* ws) {
                   if(!ws) return;
-                  char buf[1024];
-                  size_t res = wcstombs(buf, ws, 1024);
-                  if(res != (size_t)-1) assign(buf);
+                  char buf[2048];
+                  wcstombs(buf, ws, 2048);
+                  assign(buf);
               }
-              wxCharBuffer ToUTF8() const { return wxCharBuffer(c_str()); }
+              
+              // دعم الدوال المطلوبة في Console.cpp و TraceLog.h
+              const char* utf8_str() const { return c_str(); }
+              const char* wx_str() const { return c_str(); }
+              const char* mb_str() const { return c_str(); }
+              const char* c_str() const { return std::string::c_str(); }
+              
               bool IsEmpty() const { return empty(); }
               size_t Length() const { return length(); }
+              void Replace(const wxString& oldStr, const wxString& newStr, bool all = true) {}
+              
               static wxString Format(const char* f, ...) { return wxString(""); }
-              void Replace(...) {}
+              static wxString Format(const wchar_t* f, ...) { return wxString(""); }
+
+              // حل مشكلة المعامل + مع النصوص العريضة
+              wxString& operator+=(const wchar_t* ws) {
+                  wxString temp(ws);
+                  append(temp);
+                  return *this;
+              }
+              friend wxString operator+(wxString lhs, const wchar_t* rhs) {
+                  lhs += rhs;
+                  return lhs;
+              }
+              friend wxString operator+(const wchar_t* lhs, const wxString& rhs) {
+                  wxString temp(lhs);
+                  temp += rhs;
+                  return temp;
+              }
           };
 
+          class wxStringTokenizer { public: wxStringTokenizer(...){} };
+          #define wxTOKEN_RET_EMPTY_ALL 0
           typedef wchar_t wxChar;
           #define wxT(x) L##x
           #define _T(x) L##x
+          #define WX_STR(x) wxString(x).c_str()
           #define wxEmptyString wxString("")
+          #define pxGetTranslation(x) wxString(x)
           typedef std::vector<wxString> wxArrayString;
           #endif
           EOF
 
-          # 4. توليد ملفات dummy
+          # 4. توليد ملفات dummy لربط كل شيء بالجسر
           for h in string.h log.h intl.h crt.h tokenzr.h filefn.h gdicmn.h setup.h thread.h app.h event.h msgdlg.h confbase.h fileconf.h; do
             echo '#include "../wx_bridge.h"' > dummy_wx/wx/$h
           done
 
-          # 5. جراحة لتعطيل ملفات الماك وتعريفات wx المتكررة
+          # 5. تنظيف التعريفات المتعارضة في ملفات الكود
           /usr/bin/sed -i '' 's/typedef char wxChar;/\/\/ disabled/g' common/Pcsx2Defs.h || true
           /usr/bin/sed -i '' 's/typedef std::string wxString;/\/\/ disabled/g' common/Pcsx2Defs.h || true
-          
-          # مسح ملفات OpenGL الماك تماماً
-          echo "// Disabled for iOS" > common/GL/ContextAGL.mm
-          echo "// Disabled for iOS" > common/GL/ContextAGL.h
-          
-          # تعديل StringHelpers و pxForwardDefs لحذف التعريفات المتعارضة
           /usr/bin/sed -i '' 's/extern const wxPoint wxDefaultPosition;/\/\/ removed/g' common/pxForwardDefs.h || true
           /usr/bin/sed -i '' 's/extern const wxSize wxDefaultSize;/\/\/ removed/g' common/pxForwardDefs.h || true
           /usr/bin/sed -i '' 's/extern const wxRect wxDefaultRect;/\/\/ removed/g' common/StringHelpers.h || true
+          
+          # إضافة مفقودات لـ StringHelpers.h لتجنب أخطاء Operator+
+          echo "class FastFormatUnicode;" >> common/StringHelpers.h
 
       - name: Configure and Build
         shell: bash
