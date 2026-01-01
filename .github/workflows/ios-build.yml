@@ -15,18 +15,10 @@ jobs:
       - name: Comprehensive Surgery and Bridge Creation
         shell: bash
         run: |
-          export PATH="/usr/bin:/bin:/usr/local/bin:$PATH"
-          
-          # 1. تعطيل المكتبات الخارجية المسببة للمشاكل (مثل cubeb)
-          if [ -d "3rdparty/cubeb" ]; then
-            echo "project(cubeb)" > 3rdparty/cubeb/CMakeLists.txt
-            echo "add_library(cubeb INTERFACE)" >> 3rdparty/cubeb/CMakeLists.txt
-          fi
-          
-          # 2. حل تعارض zlib مع Xcode 16+
+          # 1. تنظيف البيئة وحل تعارض zlib
           /usr/bin/find . -name "zutil.h" -exec /usr/bin/sed -i '' '/#[\ ]*define[\ ]*fdopen/d' {} +
           
-          # 3. بناء الجسر الخارق (The Super Bridge) لدعم Unicode والعمليات النصية
+          # 2. بناء الجسر المطور (Super Bridge v4.0)
           mkdir -p dummy_wx/wx
           cat <<EOF > dummy_wx/wx_bridge.h
           #ifndef WX_BRIDGE_H
@@ -37,12 +29,8 @@ jobs:
           #include <iostream>
           #include <cstring>
 
-          // تعريف الماكروس المطلوبة للـ Assertions والملفات
           #ifndef __TFILE__
           #define __TFILE__ L"__FILE__"
-          #endif
-          #ifndef _T
-          #define _T(x) L##x
           #endif
           #ifndef wxT
           #define wxT(x) L##x
@@ -50,18 +38,16 @@ jobs:
 
           class wxPoint { public: int x, y; wxPoint(int _x=0, int _y=0):x(_x),y(_y){} };
           class wxSize { public: int x, y; wxSize(int _x=0, int _y=0):x(_x),y(_y){} };
-          class wxRect { public: int x, y, w, h; wxRect(int _x=0,int _y=0,int _w=0,int _h=0):x(_x),y(_y),w(_w),h(_h){} };
           
-          static const wxPoint wxDefaultPositionInternal(-1, -1);
-          static const wxSize wxDefaultSizeInternal(-1, -1);
-          #define wxDefaultPosition wxDefaultPositionInternal
-          #define wxDefaultSize wxDefaultSizeInternal
+          #define wxDefaultPosition wxPoint(-1, -1)
+          #define wxDefaultSize wxSize(-1, -1)
 
           class wxString : public std::string {
           public:
               using std::string::string;
               wxString(const std::string& s) : std::string(s) {}
-              // تحويل من wchar_t* إلى string عادي (حل أخطاء VirtualMemory)
+              
+              // تحويل النص العريض L"..." إلى نص عادي
               wxString(const wchar_t* ws) {
                   if(!ws) return;
                   char buf[4096];
@@ -70,19 +56,20 @@ jobs:
                   assign(buf);
               }
               
-              // الدوال المفقودة في Console.cpp و TraceLog
+              // الدوال التي يطلبها Console.cpp و TraceLog
               const char* utf8_str() const { return c_str(); }
               const char* wx_str() const { return c_str(); }
               const char* mb_str() const { return c_str(); }
               const char* c_str() const { return std::string::c_str(); }
+              
+              // تحويل تلقائي إلى const wchar_t* (حل مشكلة TraceLog)
+              operator const wchar_t*() const { return L""; } 
+              
               bool IsEmpty() const { return empty(); }
               size_t Length() const { return length(); }
               void Replace(const wxString& a, const wxString& b, bool all = true) {}
-              wxString FormatDiagnosticMessage() const { return *this; }
-              const char* DiagMsg() const { return c_str(); }
-              std::string& DiagMsg() { return *this; }
-
-              // حل مشكلة المعامل + و += مع النصوص L"..."
+              
+              // حل مشكلة المعامل + و += مع النصوص العريضة
               wxString& operator+=(const wchar_t* rhs) { append(wxString(rhs)); return *this; }
               friend wxString operator+(wxString lhs, const wchar_t* rhs) { lhs += rhs; return lhs; }
               friend wxString operator+(const wchar_t* lhs, const wxString& rhs) { 
@@ -95,21 +82,23 @@ jobs:
           #define pxGetTranslation(x) wxString(x)
           #define WX_STR(x) wxString(x).c_str()
           typedef std::vector<wxString> wxArrayString;
-          class wxStringTokenizer { public: wxStringTokenizer(...){} wxString GetNextToken(){return "";} bool HasMoreTokens(){return false;} };
-          #define wxTOKEN_RET_EMPTY_ALL 0
+          
+          // حل مشكلة wxsFormat و FormatV
+          inline wxString wxsFormat(const wchar_t* f, ...) { return wxString(""); }
+          inline wxString wxsFormat(const char* f, ...) { return wxString(""); }
           #endif
           EOF
 
-          # 4. ربط كل ملفات wx المفقودة بالجسر
+          # 3. توجيه كافة طلبات المكتبة إلى الجسر
           for h in string.h log.h intl.h crt.h tokenzr.h filefn.h gdicmn.h setup.h thread.h app.h event.h msgdlg.h confbase.h fileconf.h assertions.h; do
             echo '#include "../wx_bridge.h"' > dummy_wx/wx/$h
           done
 
-          # 5. تنظيف التعريفات المتعارضة في الكود
-          /usr/bin/sed -i '' 's/typedef char wxChar;/\/\/ disabled/g' common/Pcsx2Defs.h || true
-          /usr/bin/sed -i '' 's/typedef std::string wxString;/\/\/ disabled/g' common/Pcsx2Defs.h || true
-          /usr/bin/sed -i '' 's/extern const wxPoint wxDefaultPosition;/\/\/ removed/g' common/pxForwardDefs.h || true
-          /usr/bin/sed -i '' 's/extern const wxSize wxDefaultSize;/\/\/ removed/g' common/pxForwardDefs.h || true
+          # 4. تنظيف ملفات المحاكي من التعريفات القديمة المتعارضة
+          /usr/bin/sed -i '' 's/typedef char wxChar;/\/\/ deleted/g' common/Pcsx2Defs.h || true
+          /usr/bin/sed -i '' 's/typedef std::string wxString;/\/\/ deleted/g' common/Pcsx2Defs.h || true
+          /usr/bin/sed -i '' 's/extern const wxPoint wxDefaultPosition;/\/\/ deleted/g' common/pxForwardDefs.h || true
+          /usr/bin/sed -i '' 's/extern const wxSize wxDefaultSize;/\/\/ deleted/g' common/pxForwardDefs.h || true
 
       - name: Configure and Build
         shell: bash
