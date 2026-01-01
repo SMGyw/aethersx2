@@ -26,7 +26,7 @@ jobs:
           # 2. حل مشكلة zlib
           /usr/bin/find . -name "zutil.h" -exec /usr/bin/sed -i '' '/#[\ ]*define[\ ]*fdopen/d' {} +
           
-          # 3. تحديث الجسر (Bridge) لحل أخطاء wxPoint و wxSize (تحويلهم لـ class)
+          # 3. تحديث الجسر (Bridge) - نسخة "الاستقرار التام"
           mkdir -p dummy_wx/wx
           cat <<EOF > dummy_wx/wx_bridge.h
           #ifndef WX_BRIDGE_H
@@ -36,21 +36,27 @@ jobs:
           #include <cstring>
           #include <cwchar>
 
-          // تعريف الأنواع كـ classes لتطابق توقعات المحاكي
+          // تعريف الكلاسات أولاً
           class wxPoint { public: int x, y; wxPoint(int _x=0, int _y=0):x(_x),y(_y){} };
           class wxSize { public: int x, y; wxSize(int _x=0, int _y=0):x(_x),y(_y){} };
           class wxRect { public: int x, y, w, h; wxRect(int _x=0,int _y=0,int _w=0,int _h=0):x(_x),y(_y),w(_w),h(_h){} };
 
-          #define wxDefaultPosition wxPoint(-1,-1)
-          #define wxDefaultSize wxSize(-1,-1)
-          #define wxDefaultRect wxRect(-1,-1,-1,-1)
+          // تعريف الثوابت كقيم ثابتة وليس ماكرو لتجنب أخطاء التكرار
+          static const wxPoint wxDefaultPositionInternal(-1, -1);
+          static const wxSize wxDefaultSizeInternal(-1, -1);
+          static const wxRect wxDefaultRectInternal(-1, -1, -1, -1);
 
-          class wxStringTokenizer { public: wxStringTokenizer(const std::string&, const std::string&){} };
+          #define wxDefaultPosition wxDefaultPositionInternal
+          #define wxDefaultSize wxDefaultSizeInternal
+          #define wxDefaultRect wxDefaultRectInternal
+
+          class wxStringTokenizer { public: wxStringTokenizer(...){} };
           enum wxStringTokenizerMode { wxTOKEN_RET_EMPTY_ALL };
 
           struct wxCharBuffer {
               std::string d;
               wxCharBuffer(const char* s=nullptr) : d(s?s:"") {}
+              const char* data() const { return d.c_str(); } // إضافة دالة data الصريحة
               operator const char*() const { return d.c_str(); }
           };
 
@@ -66,8 +72,9 @@ jobs:
               }
               wxCharBuffer ToUTF8() const { return wxCharBuffer(c_str()); }
               bool IsEmpty() const { return empty(); }
+              size_t Length() const { return length(); }
               static wxString Format(const char* f, ...) { return wxString(""); }
-              void Replace(std::string o, std::string n) {}
+              void Replace(...) {}
           };
 
           typedef wchar_t wxChar;
@@ -83,15 +90,18 @@ jobs:
             echo '#include "../wx_bridge.h"' > dummy_wx/wx/$h
           done
 
-          # 5. جراحة لتعطيل ملفات الماك (AppKit/NS) وحل تعارضات التعريفات
+          # 5. جراحة لتعطيل ملفات الماك وتعريفات wx المتكررة
           /usr/bin/sed -i '' 's/typedef char wxChar;/\/\/ disabled/g' common/Pcsx2Defs.h || true
           /usr/bin/sed -i '' 's/typedef std::string wxString;/\/\/ disabled/g' common/Pcsx2Defs.h || true
           
-          # إفراغ محتوى ملف ContextAGL لأنه خاص بالماك فقط ويسبب أخطاء NSOpenGL
+          # مسح ملفات OpenGL الماك تماماً
           echo "// Disabled for iOS" > common/GL/ContextAGL.mm
           echo "// Disabled for iOS" > common/GL/ContextAGL.h
           
-          /usr/bin/find common -name "*.h" -exec /usr/bin/sed -i '' 's/class wxString;/#include "wx_bridge.h"/g' {} +
+          # تعديل StringHelpers و pxForwardDefs لحذف التعريفات المتعارضة
+          /usr/bin/sed -i '' 's/extern const wxPoint wxDefaultPosition;/\/\/ removed/g' common/pxForwardDefs.h || true
+          /usr/bin/sed -i '' 's/extern const wxSize wxDefaultSize;/\/\/ removed/g' common/pxForwardDefs.h || true
+          /usr/bin/sed -i '' 's/extern const wxRect wxDefaultRect;/\/\/ removed/g' common/StringHelpers.h || true
 
       - name: Configure and Build
         shell: bash
