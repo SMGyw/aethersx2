@@ -17,7 +17,7 @@ jobs:
         run: |
           export PATH="/usr/bin:/bin:/usr/local/bin:$PATH"
           
-          # 1. تعطيل المكتبات الخارجية المسببة للمشاكل
+          # 1. تعطيل المكتبات الخارجية المسببة للمشاكل (مثل cubeb)
           if [ -d "3rdparty/cubeb" ]; then
             echo "project(cubeb)" > 3rdparty/cubeb/CMakeLists.txt
             echo "add_library(cubeb INTERFACE)" >> 3rdparty/cubeb/CMakeLists.txt
@@ -26,7 +26,7 @@ jobs:
           # 2. حل تعارض zlib مع Xcode 16+
           /usr/bin/find . -name "zutil.h" -exec /usr/bin/sed -i '' '/#[\ ]*define[\ ]*fdopen/d' {} +
           
-          # 3. بناء الجسر المطور (The Super Bridge)
+          # 3. بناء الجسر الخارق (The Super Bridge) لدعم Unicode والعمليات النصية
           mkdir -p dummy_wx/wx
           cat <<EOF > dummy_wx/wx_bridge.h
           #ifndef WX_BRIDGE_H
@@ -35,8 +35,9 @@ jobs:
           #include <vector>
           #include <cwchar>
           #include <iostream>
+          #include <cstring>
 
-          // تعريف الماكروس المطلوبة للـ Assertions
+          // تعريف الماكروس المطلوبة للـ Assertions والملفات
           #ifndef __TFILE__
           #define __TFILE__ L"__FILE__"
           #endif
@@ -60,27 +61,28 @@ jobs:
           public:
               using std::string::string;
               wxString(const std::string& s) : std::string(s) {}
+              // تحويل من wchar_t* إلى string عادي (حل أخطاء VirtualMemory)
               wxString(const wchar_t* ws) {
                   if(!ws) return;
-                  char buf[2048];
+                  char buf[4096];
                   size_t n = wcstombs(buf, ws, sizeof(buf)-1);
                   if (n != (size_t)-1) buf[n] = '\0'; else buf[0] = '\0';
                   assign(buf);
               }
               
-              // الدوال المفقودة التي ظهرت في أخطاء Console.cpp و TraceLog
+              // الدوال المفقودة في Console.cpp و TraceLog
               const char* utf8_str() const { return c_str(); }
               const char* wx_str() const { return c_str(); }
               const char* mb_str() const { return c_str(); }
               const char* c_str() const { return std::string::c_str(); }
               bool IsEmpty() const { return empty(); }
               size_t Length() const { return length(); }
-              void Replace(const wxString& oldStr, const wxString& newStr, bool all = true) {}
+              void Replace(const wxString& a, const wxString& b, bool all = true) {}
               wxString FormatDiagnosticMessage() const { return *this; }
               const char* DiagMsg() const { return c_str(); }
               std::string& DiagMsg() { return *this; }
 
-              // حل مشكلة المعامل + و += مع النصوص العريضة L"..."
+              // حل مشكلة المعامل + و += مع النصوص L"..."
               wxString& operator+=(const wchar_t* rhs) { append(wxString(rhs)); return *this; }
               friend wxString operator+(wxString lhs, const wchar_t* rhs) { lhs += rhs; return lhs; }
               friend wxString operator+(const wchar_t* lhs, const wxString& rhs) { 
@@ -88,9 +90,7 @@ jobs:
               }
           };
 
-          // تعريف الأنواع المفقودة في Assertions.h
           typedef wchar_t wxChar;
-          typedef wxString wxEmptyString_t;
           #define wxEmptyString wxString("")
           #define pxGetTranslation(x) wxString(x)
           #define WX_STR(x) wxString(x).c_str()
@@ -100,17 +100,16 @@ jobs:
           #endif
           EOF
 
-          # 4. ربط كل ملفات wx المفقودة بالجسر المطور
+          # 4. ربط كل ملفات wx المفقودة بالجسر
           for h in string.h log.h intl.h crt.h tokenzr.h filefn.h gdicmn.h setup.h thread.h app.h event.h msgdlg.h confbase.h fileconf.h assertions.h; do
             echo '#include "../wx_bridge.h"' > dummy_wx/wx/$h
           done
 
-          # 5. تنظيف التعريفات المتعارضة في الكود الأصلي
-          # حذف أي تعريف يدوي قديم لـ wxString أو wxChar يسبب تعارضاً
+          # 5. تنظيف التعريفات المتعارضة في الكود
           /usr/bin/sed -i '' 's/typedef char wxChar;/\/\/ disabled/g' common/Pcsx2Defs.h || true
           /usr/bin/sed -i '' 's/typedef std::string wxString;/\/\/ disabled/g' common/Pcsx2Defs.h || true
-          /usr/bin/sed -i '' 's/extern const wxPoint wxDefaultPosition;/\/\/ disabled/g' common/pxForwardDefs.h || true
-          /usr/bin/sed -i '' 's/extern const wxSize wxDefaultSize;/\/\/ disabled/g' common/pxForwardDefs.h || true
+          /usr/bin/sed -i '' 's/extern const wxPoint wxDefaultPosition;/\/\/ removed/g' common/pxForwardDefs.h || true
+          /usr/bin/sed -i '' 's/extern const wxSize wxDefaultSize;/\/\/ removed/g' common/pxForwardDefs.h || true
 
       - name: Configure and Build
         shell: bash
